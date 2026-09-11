@@ -148,8 +148,13 @@ function botApiPlugin(): Plugin {
   };
   return {
     name: "clique24-bot-api",
+    enforce: "pre",
     configureServer(server) {
       attach(server);
+      const ours = server.middlewares.stack.pop();
+      return () => {
+        if (ours) server.middlewares.stack.unshift(ours);
+      };
     },
     configurePreviewServer(server) {
       attach(server);

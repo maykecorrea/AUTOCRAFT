@@ -75,6 +75,9 @@ class Clique24 {
   clickQueue: { x: number; y: number }[] = [];
   flushing = false;
   skipShot = false;
+  recentPlays: { x: number; y: number; t: number }[] = [];
+  lastRecover = 0;
+  lastPan = 0;
 
   constructor() {
     this.loadToken();
@@ -353,9 +356,13 @@ class Clique24 {
     return this.status();
   }
 
-  async wheel(dy: number) {
+  async wheel(dy: number, nx = 0.5, ny = 0.42) {
     const p = this.active();
     if (!p) throw new Error("Navegador fechado");
+    const vp = p.viewportSize() ?? VIEW;
+    const x = Math.max(8, Math.min(vp.width - 8, Math.round(nx * vp.width)));
+    const y = Math.max(8, Math.min(vp.height - 8, Math.round(ny * vp.height)));
+    await p.mouse.move(x, y);
     await p.mouse.wheel(0, dy);
   }
 
@@ -429,32 +436,185 @@ export async function runAutoTick(bot: Clique24) {
   if (bot.busy) return;
   bot.busy = true;
   try {
+    if (bot.popup && !bot.popup.isClosed()) {
+      const pop = bot.popup;
+      let png: Buffer;
+      try {
+        png = await pop.screenshot({ type: "png", timeout: 4000 });
+      } catch {
+        try {
+          await pop.close();
+        } catch {
+          /* ignore */
+        }
+        bot.popup = null;
+        bot.log("OK: fechei janela de anúncio.");
+        return;
+      }
+      const xbtn = findDismissButton(png);
+      if (xbtn) {
+        await pressPlay(pop, xbtn.x, xbtn.y);
+        bot.log(`OK: X do anúncio ${xbtn.x}×${xbtn.y}`);
+        await sleep(400);
+        return;
+      }
+      try {
+        await pop.close();
+      } catch {
+        /* ignore */
+      }
+      bot.popup = null;
+      bot.log("OK: fechei janela de propaganda.");
+      return;
+    }
+
     const p = bot.page;
-    if (!p || bot.popup) return;
+    if (!p) return;
     const png = await p.screenshot({ type: "png", timeout: 5000 });
+    const xbtn = findDismissButton(png);
+    if (xbtn) {
+      await pressPlay(p, xbtn.x, xbtn.y);
+      bot.clicks += 1;
+      bot.lastClick = `${xbtn.x},${xbtn.y}`;
+      bot.log(`OK: fechei popup no X ${xbtn.x}×${xbtn.y}`);
+      await sleep(500);
+      return;
+    }
+    if (isBlackFramePng(png)) {
+      if (Date.now() - (bot.lastRecover || 0) > 45000) {
+        bot.lastRecover = Date.now();
+        bot.log("Tela preta. Recarregando o jogo, sessão fica.");
+        await p.reload({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => null);
+      }
+      return;
+    }
     const kind = screenKind(png);
     if (kind !== "game") {
       bot.log(`AUTO espera: tela agora é ${kind}, não o mapa.`);
       return;
     }
-    const targets = findPlayButtons(png);
+    if (!bot.recentPlays) bot.recentPlays = [];
+    bot.recentPlays = bot.recentPlays.filter((c) => Date.now() - c.t < 20000);
+    const targets = findPlayButtons(png).filter(
+      (t) => !bot.recentPlays.some((c) => Math.abs(c.x - t.x) < 22 && Math.abs(c.y - t.y) < 22),
+    );
     bot.lastTargets = targets;
     if (targets.length === 0) {
-      await p.mouse.wheel(0, 260);
-      bot.log("Nenhum play visível. Rolando o mapa.");
+      await panMapUp(p);
+      bot.log("Nenhum play verde novo. Arrastei o mapa (sentido inverso).");
       return;
     }
     for (const t of targets.slice(0, 6)) {
       if (!bot.auto) break;
-      await p.mouse.click(t.x, t.y);
+      await pressPlay(p, t.x, t.y);
       bot.clicks += 1;
       bot.lastClick = `${t.x},${t.y}`;
-      bot.log(`OK: auto-play ${t.x}×${t.y}`);
-      await sleep(400);
+      bot.recentPlays.push({ x: t.x, y: t.y, t: Date.now() });
+      bot.log(`OK: play verde ${t.x}×${t.y}`);
+      await sleep(550);
     }
   } finally {
     bot.busy = false;
   }
+}
+
+async function pressPlay(page: Page, x: number, y: number) {
+  await page.mouse.move(x, y);
+  await sleep(40);
+  await page.mouse.down();
+  await sleep(70);
+  await page.mouse.up();
+}
+
+async function panMapUp(page: Page) {
+  const vp = page.viewportSize() ?? VIEW;
+  const x = Math.round(vp.width * 0.5);
+  const y0 = Math.round(vp.height * 0.32);
+  const y1 = Math.round(vp.height * 0.62);
+  await page.mouse.move(x, y0);
+  await page.mouse.down();
+  await page.mouse.move(x, y1, { steps: 14 });
+  await sleep(80);
+  await page.mouse.up();
+}
+
+function isBlackFramePng(pngBuf: Buffer) {
+  const img = PNG.sync.read(pngBuf);
+  const { width, height, data } = img;
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < data.length; i += 32) {
+    sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+    n += 1;
+  }
+  return n > 0 && sum / n < 18;
+}
+
+function isCloseRed(r: number, g: number, b: number) {
+  return r > 185 && g < 105 && b < 140 && r > g + 80 && r > b + 50;
+}
+
+function findDismissButton(pngBuf: Buffer) {
+  const img = PNG.sync.read(pngBuf);
+  const { width, height, data } = img;
+  const y0 = Math.floor(height * 0.02);
+  const y1 = Math.floor(height * 0.26);
+  const zones: [number, number][] = [
+    [Math.floor(width * 0.62), width - 4],
+    [4, Math.floor(width * 0.38)],
+  ];
+  const clusters: { x: number; y: number; n: number; x0: number; x1: number; y0: number; y1: number }[] = [];
+  for (const [xA, xB] of zones) {
+    for (let y = y0; y < y1; y += 1) {
+      for (let x = xA; x < xB; x += 1) {
+        const i = (width * y + x) * 4;
+        if (!isCloseRed(data[i], data[i + 1], data[i + 2])) continue;
+        let hit = clusters.find((c) => Math.abs(c.x - x) < 16 && Math.abs(c.y - y) < 16);
+        if (!hit) {
+          hit = { x, y, n: 0, x0: x, x1: x, y0: y, y1: y };
+          clusters.push(hit);
+        }
+        hit.x = (hit.x * hit.n + x) / (hit.n + 1);
+        hit.y = (hit.y * hit.n + y) / (hit.n + 1);
+        hit.n += 1;
+        hit.x0 = Math.min(hit.x0, x);
+        hit.x1 = Math.max(hit.x1, x);
+        hit.y0 = Math.min(hit.y0, y);
+        hit.y1 = Math.max(hit.y1, y);
+      }
+    }
+  }
+  const red = clusters
+    .filter((c) => {
+      const w = c.x1 - c.x0;
+      const h = c.y1 - c.y0;
+      return c.n >= 18 && c.n <= 160 && w >= 8 && w <= 52 && h >= 8 && h <= 52;
+    })
+    .sort((a, b) => b.x - a.x || a.y - b.y);
+  if (red[0]) return { x: Math.round(red[0].x), y: Math.round(red[0].y) };
+
+  // Ads: small white X on a dark circle, top corners
+  const white: { x: number; y: number; n: number }[] = [];
+  for (const [xA, xB] of zones) {
+    for (let y = y0; y < Math.floor(height * 0.18); y += 1) {
+      for (let x = xA; x < xB; x += 1) {
+        const i = (width * y + x) * 4;
+        const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        if (lum < 215) continue;
+        let hit = white.find((c) => Math.abs(c.x - x) < 12 && Math.abs(c.y - y) < 12);
+        if (!hit) {
+          hit = { x, y, n: 0 };
+          white.push(hit);
+        }
+        hit.x = (hit.x * hit.n + x) / (hit.n + 1);
+        hit.y = (hit.y * hit.n + y) / (hit.n + 1);
+        hit.n += 1;
+      }
+    }
+  }
+  const wx = white.filter((c) => c.n >= 10 && c.n <= 70).sort((a, b) => b.x - a.x)[0];
+  if (wx) return { x: Math.round(wx.x), y: Math.round(wx.y) };
+  return null;
 }
 
 export function findPurpleLoginButtons(pngBuf: Buffer) {
@@ -499,9 +659,120 @@ export function findPurpleLoginButtons(pngBuf: Buffer) {
 }
 
 export function screenKind(pngBuf: Buffer): "loading" | "login" | "game" {
-  if (isLoadingSpinner(pngBuf)) return "loading";
-  if (findPurpleLoginButtons(pngBuf).length >= 1) return "login";
+  const grass = grassRatio(pngBuf);
+  if (grass > 0.18) return "game";
+  if (isLoadingSpinner(pngBuf) && grass < 0.08) return "loading";
+  if (findPurpleLoginButtons(pngBuf).length >= 2 && grass < 0.12) return "login";
   return "game";
+}
+
+function grassRatio(pngBuf: Buffer) {
+  const img = PNG.sync.read(pngBuf);
+  const { width, height, data } = img;
+  let grass = 0;
+  let n = 0;
+  for (let y = Math.floor(height * 0.2); y < Math.floor(height * 0.85); y += 4) {
+    for (let x = 16; x < width - 16; x += 4) {
+      const i = (width * y + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      n += 1;
+      if (g > r && g > b && g > 40 && g < 180) grass += 1;
+    }
+  }
+  return n ? grass / n : 0;
+}
+
+function isPlayPixel(r: number, g: number, b: number) {
+  // Bright lime triangle. Yellow boost has high red — reject those.
+  return g > 190 && r < 130 && b < 160 && g > r + 70 && g > b + 40;
+}
+
+function findPlayButtons(pngBuf: Buffer) {
+  const img = PNG.sync.read(pngBuf);
+  const { width, height, data } = img;
+  // Skip HUD + the character play at the top of the chain. Never click that.
+  const xMin = Math.floor(width * 0.18);
+  const yMin = Math.floor(height * 0.3);
+  const yMax = Math.floor(height * 0.78);
+  const clusters: {
+    x: number;
+    y: number;
+    n: number;
+    sr: number;
+    sg: number;
+    bx: number;
+    by: number;
+    bg: number;
+  }[] = [];
+  for (let y = yMin; y < yMax; y += 1) {
+    for (let x = xMin; x < width - 8; x += 1) {
+      const i = (width * y + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (!isPlayPixel(r, g, b)) continue;
+      let hit = clusters.find((c) => Math.abs(c.x - x) < 16 && Math.abs(c.y - y) < 16);
+      if (!hit) {
+        hit = { x, y, n: 0, sr: 0, sg: 0, bx: x, by: y, bg: g };
+        clusters.push(hit);
+      }
+      hit.x = (hit.x * hit.n + x) / (hit.n + 1);
+      hit.y = (hit.y * hit.n + y) / (hit.n + 1);
+      hit.sr += r;
+      hit.sg += g;
+      hit.n += 1;
+      if (g > hit.bg) {
+        hit.bx = x;
+        hit.by = y;
+        hit.bg = g;
+      }
+    }
+  }
+  const found = clusters
+    .filter((c) => {
+      if (c.n < 16 || c.n > 260) return false;
+      const mr = c.sr / c.n;
+      const mg = c.sg / c.n;
+      return mg > mr + 70 && mr < 120;
+    })
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 8)
+    .map((c) => ({ x: c.bx, y: c.by }))
+    .filter((t) => t.y >= Math.floor(height * 0.3))
+    .filter((t) => !hasArrowUnderPlay(data, width, height, t.x, t.y));
+  if (found.length < 2) return found;
+  const byY = [...found].sort((a, b) => a.y - b.y);
+  if (byY[1].y - byY[0].y > 80) {
+    return found.filter((t) => t.x !== byY[0].x || t.y !== byY[0].y);
+  }
+  return found;
+}
+
+function hasArrowUnderPlay(
+  data: Buffer,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+) {
+  // Top-chain widget: green play with a tiny yellow arrow just below. Never click.
+  let yellow = 0;
+  const x0 = Math.max(0, x - 16);
+  const x1 = Math.min(width - 1, x + 16);
+  const y0 = Math.min(height - 1, y + 10);
+  const y1 = Math.min(height - 1, y + 42);
+  for (let yy = y0; yy <= y1; yy += 1) {
+    for (let xx = x0; xx <= x1; xx += 1) {
+      const i = (width * yy + xx) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (r > 180 && g > 130 && b < 120 && r >= g - 10) yellow += 1;
+    }
+  }
+  return yellow > 18;
 }
 
 function googleStepFromUrl(url: string): BotStatus["googleStep"] {
@@ -553,38 +824,4 @@ function isLoadingSpinner(pngBuf: Buffer) {
     }
   }
   return bright > 400;
-}
-
-function isPlayPixel(r: number, g: number, b: number) {
-  const lime = g > 170 && g > r + 40 && g > b + 20 && r < 210 && b < 180;
-  const gold = r > 210 && g > 155 && b < 110 && r + g > 380 && g > b + 50;
-  return lime || gold;
-}
-
-function findPlayButtons(pngBuf: Buffer) {
-  const img = PNG.sync.read(pngBuf);
-  const { width, height, data } = img;
-  const xMin = Math.floor(width * 0.16);
-  const yMin = Math.floor(height * 0.12);
-  const yMax = Math.floor(height * 0.92);
-  const clusters: { x: number; y: number; n: number }[] = [];
-  for (let y = yMin; y < yMax; y += 2) {
-    for (let x = xMin; x < width - 8; x += 2) {
-      const i = (width * y + x) * 4;
-      if (!isPlayPixel(data[i], data[i + 1], data[i + 2])) continue;
-      let hit = clusters.find((c) => Math.abs(c.x - x) < 26 && Math.abs(c.y - y) < 26);
-      if (!hit) {
-        hit = { x, y, n: 0 };
-        clusters.push(hit);
-      }
-      hit.x = (hit.x * hit.n + x) / (hit.n + 1);
-      hit.y = (hit.y * hit.n + y) / (hit.n + 1);
-      hit.n += 1;
-    }
-  }
-  return clusters
-    .filter((c) => c.n >= 8 && c.n < 350)
-    .sort((a, b) => b.n - a.n)
-    .slice(0, 8)
-    .map((c) => ({ x: Math.round(c.x), y: Math.round(c.y) }));
 }

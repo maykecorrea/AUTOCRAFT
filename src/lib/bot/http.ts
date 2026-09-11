@@ -121,6 +121,24 @@ function stabilize(bot: ReturnType<typeof getBot>) {
     return bot.opening;
   };
   bot.tick = () => runAutoTick(bot);
+  const b = bot as typeof bot & { __autoPatch3?: boolean };
+  bot.loop = async () => {
+    if (!bot.auto) return;
+    try {
+      if (!bot.page || bot.page.isClosed()) await bot.open();
+      await runAutoTick(bot);
+    } catch (e) {
+      bot.error = e instanceof Error ? e.message : String(e);
+      bot.log(`ERRO no AUTO: ${bot.error}`);
+    }
+    bot.autoTimer = setTimeout(() => bot.loop(), bot.auto ? 4000 : 800);
+  };
+  if (!b.__autoPatch3) {
+    b.__autoPatch3 = true;
+    bot.log("AUTO atualizado: só o play verde. Amarelo (acelerar) ignorado.");
+    if (bot.autoTimer) clearTimeout(bot.autoTimer);
+    if (bot.auto) bot.autoTimer = setTimeout(() => bot.loop(), 200);
+  }
 }
 
 export async function handleBotFetch(request: Request): Promise<Response> {
@@ -138,7 +156,7 @@ export async function handleBotFetch(request: Request): Promise<Response> {
   try {
     if (method === "GET" && path.endsWith("/status")) {
       const st = bot.status();
-      return json({ ...st, logs: bot.logs.slice(0, 25) });
+      return json({ ...st, logs: bot.logs.slice(0, 25), autoPatch: 3 });
     }
 
     if (method === "GET" && path.endsWith("/frame")) {
@@ -163,11 +181,14 @@ export async function handleBotFetch(request: Request): Promise<Response> {
       }
     }
 
-    if (method === "POST" && path.endsWith("/open")) {
+    if (path.endsWith("/open") && (method === "POST" || method === "GET")) {
       await bot.open();
       const st = bot.status();
       if (!st.open) {
-        return json({ ...st, logs: bot.logs.slice(0, 25), error: bot.error || "ERRO: Chrome não abriu." }, 200);
+        return json(
+          { ...st, logs: bot.logs.slice(0, 25), error: bot.error || "ERRO: Chrome não abriu." },
+          200,
+        );
       }
       return json({ ...st, logs: bot.logs.slice(0, 25) });
     }
@@ -222,11 +243,16 @@ export async function handleBotFetch(request: Request): Promise<Response> {
       return json(bot.status());
     }
     if (method === "POST" && path.endsWith("/wheel")) {
-      await bot.wheel(Number(body.dy) || 200);
+      await bot.wheel(Number(body.dy) || 200, Number(body.nx) || 0.5, Number(body.ny) || 0.42);
       return json(bot.status());
     }
+    if (method === "POST" && (path.endsWith("/clearlogs") || path.endsWith("/logs/clear"))) {
+      bot.logs = [];
+      bot.error = null;
+      return json({ ...bot.status(), logs: [] });
+    }
 
-    return json({ error: "rota desconhecida", open: bot.status().open }, 200);
+    return json({ error: `rota desconhecida: ${method} ${path}`, open: bot.status().open }, 200);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     try {

@@ -38,16 +38,18 @@ const empty: Status = {
 };
 
 async function api(path: string, body?: unknown) {
+  const get = (path.endsWith("/status") || path.endsWith("/frame")) && body === undefined;
   const res = await fetch(path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    method: get ? "GET" : "POST",
+    headers: get ? undefined : { "content-type": "application/json" },
+    body: get ? undefined : JSON.stringify(body ?? {}),
   });
   if (res.headers.get("content-type")?.includes("application/json")) {
     const data = (await res.json().catch(() => ({}))) as Status & { error?: string };
-    if (!res.ok && data.error) throw new Error(data.error);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    if (data.error) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!get && data.error && (data.open === false || path.includes("/open"))) {
+      throw new Error(data.error);
+    }
     return data;
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -151,10 +153,9 @@ export function Dashboard() {
     }
   }
 
-  function clickNorm(e: React.MouseEvent) {
+  function pointerNorm(e: { clientX: number; clientY: number }) {
     const img = imgRef.current;
-    if (!img || !visible) return;
-    viewRef.current?.focus();
+    if (!img) return null;
     const r = img.getBoundingClientRect();
     const natW = img.naturalWidth || r.width;
     const natH = img.naturalHeight || r.height;
@@ -165,8 +166,24 @@ export function Dashboard() {
     const oy = r.top + (r.height - dispH) / 2;
     const nx = (e.clientX - ox) / dispW;
     const ny = (e.clientY - oy) / dispH;
-    if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return;
-    void api("/api/bot/click", { nx, ny });
+    if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return null;
+    return { nx, ny };
+  }
+
+  function clickNorm(e: React.MouseEvent) {
+    if (!visible) return;
+    viewRef.current?.focus();
+    const n = pointerNorm(e);
+    if (!n) return;
+    void api("/api/bot/click", n);
+  }
+
+  function onWheel(e: React.WheelEvent) {
+    if (!visible) return;
+    e.preventDefault();
+    const n = pointerNorm(e);
+    if (!n) return;
+    void api("/api/bot/wheel", { dy: e.deltaY, nx: n.nx, ny: n.ny });
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -186,12 +203,6 @@ export function Dashboard() {
     e.preventDefault();
     const text = e.clipboardData.getData("text");
     if (text) void api("/api/bot/type", { text });
-  }
-
-  function onWheel(e: React.WheelEvent) {
-    if (!visible) return;
-    e.preventDefault();
-    void api("/api/bot/wheel", { dy: Math.sign(e.deltaY) * 240 });
   }
 
   return (
@@ -243,8 +254,8 @@ export function Dashboard() {
           {visible ? (
             <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-md bg-bg/80 px-3 py-2 text-center text-xs text-muted">
               {focused
-                ? "Pode digitar. Clique no campo, depois escreva."
-                : "Clique nesta tela para ativar o teclado."}
+                ? "Pode digitar. Roleta pra baixo = afastar o mapa."
+                : "Clique nesta tela, roleta pra baixo afasta o zoom."}
             </div>
           ) : null}
         </div>
@@ -365,6 +376,19 @@ export function Dashboard() {
         {msg ? <p className="text-xs text-accent">{msg}</p> : null}
 
         <p className="break-all font-mono text-xs text-faint">{st.url || "—"}</p>
+
+        <button
+          type="button"
+          onClick={() =>
+            void run(async () => {
+              const data = await api("/api/bot/clearlogs");
+              setSt({ ...empty, ...data, logs: data.logs ?? [] });
+            })
+          }
+          className="h-9 rounded-md border border-line text-xs font-semibold text-muted"
+        >
+          Limpar logs
+        </button>
 
         <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto text-xs leading-snug text-faint">
           {st.logs.length === 0 ? (
