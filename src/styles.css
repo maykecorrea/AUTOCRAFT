@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #07150f;
+  --color-surface: #102018;
+  --color-surface-2: #173024;
+  --color-fg: #f2ead8;
+  --color-muted: #9aa894;
+  --color-faint: #6d7a68;
+  --color-line: #2a4034;
+  --color-accent: #7ec8a3;
+  --color-accent-dim: #3d7a5c;
+  --color-danger: #c45c3a;
+  --color-warn: #d4b46a;
+  --color-water: #3aa0b8;
+  --font-display: "Pixelify Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 28px;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes pipe-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(126, 200, 163, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(126, 200, 163, 0);
+  }
+}
+
+@keyframes float-up {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -28px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -120% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+
+.island-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #2a4034 transparent;
+}
+.island-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.island-scroll::-webkit-scrollbar-thumb {
+  background: #2a4034;
+  border-radius: 99px;
+}
+
+.pipe-flow {
+  stroke-dasharray: 8 6;
+  animation: pipe-flow 1.1s linear infinite;
+}
+
+.hud-chip {
+  background: color-mix(in oklab, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-fg) 12%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.play-btn {
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+
+.pixel-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
