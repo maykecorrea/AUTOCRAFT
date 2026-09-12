@@ -12,7 +12,7 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: APP_NAME },
       { name: "theme-color", content: "#0c0e12" },
-      { name: "description", content: "Bot 24h que clica no Craft World. Login Google, depois o AUTO não para." },
+      { name: "description", content: "Painel de coleta real do Craft World. AUTO 24h via API." },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

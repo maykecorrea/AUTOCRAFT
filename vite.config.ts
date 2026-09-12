@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { Plugin } from "vite";
@@ -137,11 +137,48 @@ function botApiPlugin(): Plugin {
         await last(req, res);
       } catch (err) {
         console.error("[clique24] bot api failed:", err);
-        last = null;
+        if (last && !res.headersSent) {
+          try {
+            await last(req, res);
+            return;
+          } catch {
+            /* keep last handler */
+          }
+        }
         if (!res.headersSent) {
           res.statusCode = 200;
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ error: "bot ocupado" }));
+          const cachePath = join(process.cwd(), "data", "last-status.json");
+          const statePath = join(process.cwd(), "data", "bot-state.json");
+          if (existsSync(cachePath)) {
+            res.end(readFileSync(cachePath));
+            return;
+          }
+          let extra: Record<string, unknown> = {};
+          try {
+            if (existsSync(statePath)) extra = JSON.parse(readFileSync(statePath, "utf8"));
+          } catch {
+            /* ignore */
+          }
+          res.end(
+            JSON.stringify({
+              error: "bot ocupado",
+              stale: true,
+              hasToken: extra.hasToken !== false,
+              auto: !!extra.auto,
+              energy: 0,
+              energyMax: 1250,
+              cycles: extra.cycles ?? 0,
+              xpCollected: extra.xpCollected ?? 0,
+              collected: extra.collectedSession
+                ? Object.entries(extra.collectedSession as Record<string, number>).map(([symbol, amount]) => ({
+                    symbol,
+                    amount,
+                  }))
+                : [],
+              logs: [],
+            }),
+          );
         }
       }
     });

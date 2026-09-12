@@ -1,412 +1,424 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Circle, MousePointerClick, Power, Square, Undo2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Circle, Pause, Play, RotateCcw, Zap } from "lucide-react";
 
+type Amt = { symbol: string; amount: number };
 type Log = { t: number; text: string };
+type Area = { id: string; symbol: string; factories: number; idle: number };
+type Hist = { t: number; collected: Amt[]; xp: number; nodes: number };
 
 type Status = {
-  open: boolean;
   auto: boolean;
-  url: string;
-  title: string;
-  clicks: number;
-  lastClick: string | null;
-  popup: boolean;
-  google: boolean;
-  loggedHint: boolean;
+  hasToken: boolean;
   error: string | null;
-  uptimeSec: number;
+  energy: number | null;
+  energyMax: number | null;
+  xp: number | null;
   factories: number;
   mines: number;
+  resources: Amt[];
+  areas: Area[];
+  collected: Amt[];
+  lastCollected: Amt[];
+  lastSpent: Amt[];
+  cycles: number;
+  xpCollected: number;
+  sessionStartedAt: number;
+  lastCycleAt: number;
+  history: Hist[];
   logs: Log[];
 };
 
+function hasNum(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+const CACHE_KEY = "clique24-live-status";
+
+function loadCached(): Status {
+  try {
+    if (typeof sessionStorage === "undefined") return empty;
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return empty;
+    const data = JSON.parse(raw) as Partial<Status>;
+    if (typeof data.hasToken !== "boolean") return empty;
+    return { ...empty, ...data, logs: data.logs ?? [] };
+  } catch {
+    return empty;
+  }
+}
+
+function saveCached(st: Status) {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    if (!st.hasToken && !st.cycles) return;
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(st));
+  } catch {
+    /* quota */
+  }
+}
+
 const empty: Status = {
-  open: false,
   auto: false,
-  url: "",
-  title: "",
-  clicks: 0,
-  lastClick: null,
-  popup: false,
-  google: false,
-  loggedHint: false,
+  hasToken: false,
   error: null,
-  uptimeSec: 0,
+  energy: null,
+  energyMax: null,
+  xp: null,
   factories: 0,
   mines: 0,
+  resources: [],
+  areas: [],
+  collected: [],
+  lastCollected: [],
+  lastSpent: [],
+  cycles: 0,
+  xpCollected: 0,
+  sessionStartedAt: 0,
+  lastCycleAt: 0,
+  history: [],
   logs: [],
 };
 
 async function api(path: string, body?: unknown) {
-  const get = (path.endsWith("/status") || path.endsWith("/frame")) && body === undefined;
+  const get = path.endsWith("/status") && body === undefined;
   const res = await fetch(path, {
     method: get ? "GET" : "POST",
     headers: get ? undefined : { "content-type": "application/json" },
     body: get ? undefined : JSON.stringify(body ?? {}),
   });
-  if (res.headers.get("content-type")?.includes("application/json")) {
-    const data = (await res.json().catch(() => ({}))) as Status & { error?: string };
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    if (!get && data.error && (data.open === false || path.includes("/open"))) {
-      throw new Error(data.error);
-    }
-    return data;
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return {} as Status;
+  const data = (await res.json().catch(() => ({}))) as Status & { error?: string; autoPatch?: number };
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
 }
 
-function fmtUptime(s: number) {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${h}h ${String(m).padStart(2, "0")}m ${String(sec).padStart(2, "0")}s`;
+function isLiveStatus(data: Partial<Status> & { autoPatch?: number; stale?: boolean }) {
+  if (typeof data.hasToken === "boolean" && typeof data.auto === "boolean") return true;
+  if (hasNum(data.energyMax) || (data.cycles ?? 0) > 0) return true;
+  return false;
 }
 
-export function Dashboard() {
-  const [st, setSt] = useState<Status>(empty);
-  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+function mergeStatus(prev: Status, data: Partial<Status>): Status {
+  return {
+    ...prev,
+    ...data,
+    hasToken: Boolean(data.hasToken || prev.hasToken),
+    auto: typeof data.auto === "boolean" ? data.auto : prev.auto,
+    logs: data.logs?.length ? data.logs : prev.logs,
+    collected: data.collected?.length || data.cycles ? data.collected ?? prev.collected : prev.collected,
+    lastCollected: data.lastCollected?.length ? data.lastCollected : prev.lastCollected,
+    resources: data.resources?.length ? data.resources : prev.resources,
+    areas: data.areas?.length ? data.areas : prev.areas,
+    energyMax: hasNum(data.energyMax) && data.energyMax > 0 ? data.energyMax : prev.energyMax ?? 1250,
+    energy: hasNum(data.energy) ? data.energy : prev.energy,
+    xp: hasNum(data.xp) ? data.xp : prev.xp,
+    cycles: Math.max(data.cycles ?? 0, prev.cycles),
+    xpCollected: Math.max(data.xpCollected ?? 0, prev.xpCollected),
+    sessionStartedAt: data.sessionStartedAt || prev.sessionStartedAt,
+  };
+}
+
+function fmt(n: number | null | undefined) {
+  if (!hasNum(n)) return "—";
+  const v = Math.abs(n);
+  if (v >= 1_000_000) return `${(n / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}M`;
+  return Math.round(n).toLocaleString("pt-BR");
+}
+
+function fmtSigned(n: number) {
+  const sign = n > 0 ? "+" : n < 0 ? "" : "+";
+  return `${sign}${fmt(n)}`;
+}
+
+function ago(ts: number) {
+  if (!ts) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}min`;
+  return `${Math.floor(m / 60)}h ${m % 60}min`;
+}
+
+function sessionHours(started: number) {
+  if (!started) return 0;
+  return Math.max(1 / 60, (Date.now() - started) / 3_600_000);
+}
+
+export function Dashboard({ initial }: { initial?: Partial<Status> | null }) {
+  const [st, setSt] = useState<Status>(() => {
+    if (initial && isLiveStatus(initial)) return mergeStatus(empty, initial);
+    const cached = loadCached();
+    if (cached.hasToken || cached.cycles) return cached;
+    return empty;
+  });
   const [busy, setBusy] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const viewRef = useRef<HTMLDivElement>(null);
-  const booted = useRef(false);
-  const closedByUser = useRef(false);
-  const shownRef = useRef(false);
-  const frameUrlRef = useRef<string | null>(null);
-
-  const visible = st.open && !!frameUrl && frameUrl.startsWith("blob:");
+  const [now, setNow] = useState(Date.now());
+  const [live, setLive] = useState(() => !!(initial && isLiveStatus(initial)));
 
   const refresh = useCallback(async () => {
     try {
       const data = await api("/api/bot/status");
-      if (typeof data.open !== "boolean") return;
-      setSt({ ...empty, ...data, logs: data.logs ?? [] });
+      if (!isLiveStatus(data)) return false;
+      setLive(true);
+      setSt((prev) => {
+        const next = mergeStatus(prev, data);
+        saveCached(next);
+        return next;
+      });
+      return true;
     } catch {
-      /* ignore flaps */
-    }
-  }, []);
-
-  const pullFrame = useCallback(async () => {
-    if (closedByUser.current) return;
-    try {
-      const res = await fetch("/api/bot/frame", { cache: "no-store" });
-      const ct = res.headers.get("content-type") ?? "";
-      if (!res.ok || !ct.includes("image")) return;
-      const blob = await res.blob();
-      if (blob.size < 400) return;
-      const url = URL.createObjectURL(blob);
-      const prev = frameUrlRef.current;
-      frameUrlRef.current = url;
-      setFrameUrl(url);
-      if (prev && prev !== url) URL.revokeObjectURL(prev);
-    } catch {
-      /* keep last frame */
+      return false;
     }
   }, []);
 
   useEffect(() => {
-    let stop = false;
-    async function boot() {
-      try {
-        const data = await api("/api/bot/status");
-        if (stop) return;
-        if (typeof data.open === "boolean") {
-          setSt({ ...empty, ...data, logs: data.logs ?? [] });
-        }
-        if (!data.open && !booted.current) {
-          booted.current = true;
-          setMsg("Abrindo o Craft World…");
-          await api("/api/bot/open");
-          if (stop) return;
-          await refresh();
-          setMsg(null);
-        }
-      } catch {
-        if (!stop) setMsg("Servidor ligando…");
-      }
-    }
-    void boot();
+    const cached = loadCached();
+    if (cached.hasToken || cached.cycles) setSt(cached);
+    void refresh();
     const id = setInterval(() => {
       void refresh();
-      void pullFrame();
-    }, 700);
-    void pullFrame();
-    return () => {
-      stop = true;
-      clearInterval(id);
-    };
-  }, [refresh, pullFrame]);
+      setNow(Date.now());
+    }, 2000);
+    return () => clearInterval(id);
+  }, [refresh]);
 
-  async function run(fn: () => Promise<unknown>, ok?: string) {
+  async function run(fn: () => Promise<unknown>) {
     setBusy(true);
-    setMsg(null);
     try {
       await fn();
       await refresh();
-      if (ok) setMsg(ok);
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "falhou");
     } finally {
       setBusy(false);
     }
   }
 
-  function pointerNorm(e: { clientX: number; clientY: number }) {
-    const img = imgRef.current;
-    if (!img) return null;
-    const r = img.getBoundingClientRect();
-    const natW = img.naturalWidth || r.width;
-    const natH = img.naturalHeight || r.height;
-    const scale = Math.min(r.width / natW, r.height / natH);
-    const dispW = natW * scale;
-    const dispH = natH * scale;
-    const ox = r.left + (r.width - dispW) / 2;
-    const oy = r.top + (r.height - dispH) / 2;
-    const nx = (e.clientX - ox) / dispW;
-    const ny = (e.clientY - oy) / dispH;
-    if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return null;
-    return { nx, ny };
-  }
+  const hours = sessionHours(st.sessionStartedAt);
+  const maxCollected = Math.max(1, ...st.collected.map((r) => r.amount));
+  const lastTotal = st.lastCollected.reduce((s, r) => s + r.amount, 0);
+  const sessionTotal = st.collected.reduce((s, r) => s + r.amount, 0);
+  const energyPct =
+    hasNum(st.energyMax) && st.energyMax > 0 && hasNum(st.energy)
+      ? Math.max(0, Math.min(100, (st.energy / st.energyMax) * 100))
+      : 0;
 
-  function clickNorm(e: React.MouseEvent) {
-    if (!visible) return;
-    viewRef.current?.focus();
-    const n = pointerNorm(e);
-    if (!n) return;
-    void api("/api/bot/click", n);
-  }
+  const spark = useMemo(() => {
+    const rows = [...(st.history ?? [])].slice(0, 16).reverse();
+    const vals = rows.map((h) => h.collected.reduce((s, r) => s + r.amount, 0));
+    const max = Math.max(1, ...vals);
+    return vals.map((v) => (v / max) * 100);
+  }, [st.history]);
 
-  function onWheel(e: React.WheelEvent) {
-    if (!visible) return;
-    e.preventDefault();
-    const n = pointerNorm(e);
-    if (!n) return;
-    void api("/api/bot/wheel", { dy: e.deltaY, nx: n.nx, ny: n.ny });
-  }
+  const stockBy = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of st.resources) m.set(r.symbol, r.amount);
+    return m;
+  }, [st.resources]);
 
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (!visible) return;
-    if (e.metaKey || (e.ctrlKey && e.key.toLowerCase() !== "v")) return;
-    e.preventDefault();
-    if (e.key === "v" && e.ctrlKey) return;
-    if (e.key.length === 1 && !e.ctrlKey && !e.altKey) {
-      void api("/api/bot/type", { text: e.key });
-      return;
-    }
-    void api("/api/bot/key", { key: e.key });
-  }
-
-  function onPaste(e: React.ClipboardEvent) {
-    if (!visible) return;
-    e.preventDefault();
-    const text = e.clipboardData.getData("text");
-    if (text) void api("/api/bot/type", { text });
-  }
+  const lastBy = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of st.lastCollected) m.set(r.symbol, r.amount);
+    return m;
+  }, [st.lastCollected]);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-bg text-fg lg:flex-row">
-      <section className="flex min-h-0 flex-1 flex-col p-3 lg:p-5">
-        <header className="mb-3 flex items-end justify-between gap-3">
+    <div className="min-h-dvh bg-bg text-fg">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 lg:px-8 lg:py-8">
+        <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
-              Craft World · bot 24h
+            <p className="text-xs font-medium uppercase tracking-widest text-accent">Craft World · coleta real</p>
+            <h1 className="pixel-title mt-1 text-3xl font-semibold tracking-tight">Clique24</h1>
+            <p className="mt-1 text-sm text-muted">
+              Cada número vem do GraphQL antes e depois do CLAIM. Nada estimado.
             </p>
-            <h1 className="text-2xl font-semibold tracking-tight">Clique24</h1>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <Circle
-              className={`size-2.5 fill-current ${st.auto ? "text-accent" : visible ? "text-warn" : "text-faint"}`}
-            />
-            {st.auto ? "clicando" : st.open ? "navegador aberto" : "fechado"}
+          <div className="flex items-center gap-3 text-sm text-muted">
+            <Circle className={`size-2.5 fill-current ${st.auto ? "text-accent" : "text-faint"}`} />
+            {st.auto ? "AUTO 15s" : st.hasToken || st.cycles ? "pausado" : "sem sessão"}
+            {!live && (st.hasToken || st.cycles) ? <span className="text-faint"> · sincronizando</span> : null}
           </div>
         </header>
 
-        <div
-          ref={viewRef}
-          tabIndex={0}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          onWheel={onWheel}
-          onClick={clickNorm}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          className={`relative mx-auto flex min-h-[52vh] w-full max-w-[430px] flex-1 items-center justify-center overflow-hidden rounded-lg border bg-surface outline-none lg:min-h-0 ${
-            focused ? "border-accent" : "border-line"
-          }`}
-        >
-          {frameUrl && frameUrl.startsWith("blob:") ? (
-            <img
-              ref={imgRef}
-              src={frameUrl}
-              alt="Craft World ao vivo"
-              className="h-full w-full cursor-text object-contain"
-              draggable={false}
-            />
-          ) : (
-            <div className="px-8 py-16 text-center">
-              <p className="text-sm text-muted">
-                {st.open ? "Esperando a primeira foto do jogo…" : "Navegador fechado. Aperte Abrir."}
-              </p>
+        <section className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-xs uppercase tracking-wide text-faint">Energia</p>
+            <p className="mt-1 font-mono text-2xl tabular-nums">
+              {fmt(st.energy)}
+              <span className="text-sm text-faint">/{fmt(st.energyMax)}</span>
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-line">
+              <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${energyPct}%` }} />
             </div>
+          </div>
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-xs uppercase tracking-wide text-faint">XP coletado</p>
+            <p className="mt-1 font-mono text-2xl tabular-nums text-accent">{fmtSigned(st.xpCollected)}</p>
+            <p className="mt-2 font-mono text-xs text-muted">conta {fmt(st.xp)}</p>
+          </div>
+          <div className="rounded-xl bg-surface p-4">
+            <p className="text-xs uppercase tracking-wide text-faint">Sessão</p>
+            <p className="mt-1 font-mono text-2xl tabular-nums">{st.cycles} ciclos</p>
+            <p className="mt-2 font-mono text-xs text-muted">
+              {st.sessionStartedAt ? ago(st.sessionStartedAt) : "aguardando"} · {fmt(sessionTotal)} un.
+            </p>
+          </div>
+        </section>
+
+        <section className="rounded-xl bg-surface p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-medium">Neste ciclo</h2>
+            <p className="font-mono text-xs text-faint">{st.lastCycleAt ? `há ${ago(st.lastCycleAt)}` : "ainda não rodou"}</p>
+          </div>
+          {st.lastCollected.length === 0 ? (
+            <p className="mt-4 text-sm text-muted">
+              {st.cycles ? "CLAIM não moveu o inventário — nodes vazios." : "Esperando o primeiro CLAIM."}
+            </p>
+          ) : (
+            <ul className="mt-4 flex flex-wrap gap-2">
+              {st.lastCollected.map((r) => (
+                <li
+                  key={r.symbol}
+                  className="rounded-md bg-surface-2 px-3 py-2 font-mono text-sm tabular-nums"
+                >
+                  <span className="text-accent">{fmtSigned(r.amount)}</span>{" "}
+                  <span className="text-muted">{r.symbol}</span>
+                </li>
+              ))}
+              {st.xpCollected && lastTotal ? (
+                <li className="rounded-md bg-surface-2 px-3 py-2 font-mono text-sm tabular-nums text-muted">
+                  total {fmtSigned(lastTotal)}
+                </li>
+              ) : null}
+            </ul>
           )}
-          {visible ? (
-            <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-md bg-bg/80 px-3 py-2 text-center text-xs text-muted">
-              {focused
-                ? "Pode digitar. Roleta pra baixo = afastar o mapa."
-                : "Clique nesta tela, roleta pra baixo afasta o zoom."}
+          {st.lastSpent.length ? (
+            <p className="mt-3 text-xs text-faint">
+              Gastou nas fábricas:{" "}
+              {st.lastSpent.map((r) => `${r.symbol} −${fmt(r.amount)}`).join(" · ")}
+            </p>
+          ) : null}
+          {spark.length > 1 ? (
+            <div className="mt-5 flex h-12 items-end gap-1">
+              {spark.map((h, i) => (
+                <div
+                  key={i}
+                  className="flex-1 rounded-sm bg-accent-dim"
+                  style={{ height: `${Math.max(6, h)}%` }}
+                />
+              ))}
             </div>
           ) : null}
-        </div>
-      </section>
+        </section>
 
-      <aside className="flex w-full flex-col gap-3 border-t border-line bg-surface p-4 lg:h-dvh lg:w-[340px] lg:overflow-y-auto lg:border-l lg:border-t-0">
-        <p className="text-sm leading-relaxed text-muted">
-          Agora só o login. O bot tira uma foto PNG; o <strong className="text-fg">código Node</strong>{" "}
-          (não uma IA) lê os pixels e acha as barras roxas EMAIL/PHONE. Phone = a de baixo. Depois
-          digita o número salvo.
-        </p>
+        <section>
+          <h2 className="mb-3 text-sm font-medium">Cálculo por recurso</h2>
+          <p className="mb-4 text-sm text-muted">
+            sessão = soma dos CLAIMs · ritmo = sessão ÷ tempo · estoque = inventário agora
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(st.collected.length ? st.collected : st.resources.filter((r) => r.symbol !== "COIN")).map((r) => {
+              const sessionAmt = st.collected.find((c) => c.symbol === r.symbol)?.amount ?? r.amount;
+              const isSession = st.collected.some((c) => c.symbol === r.symbol);
+              const last = lastBy.get(r.symbol) ?? 0;
+              const stock = stockBy.get(r.symbol) ?? 0;
+              const rate = isSession && st.sessionStartedAt ? sessionAmt / hours : 0;
+              const fill = isSession ? (sessionAmt / maxCollected) * 100 : 0;
+              return (
+                <article key={r.symbol} className="rounded-xl bg-surface p-4">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-medium tracking-wide">{r.symbol}</h3>
+                    <span className="font-mono text-xs text-faint">estoque {fmt(stock)}</span>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 font-mono text-xs tabular-nums">
+                    <div>
+                      <dt className="text-faint">ciclo</dt>
+                      <dd className={last ? "text-accent" : "text-muted"}>{last ? fmtSigned(last) : "0"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-faint">sessão</dt>
+                      <dd>{isSession ? fmtSigned(sessionAmt) : "0"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-faint">ritmo</dt>
+                      <dd>{rate ? `${fmt(rate)}/h` : "—"}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-line">
+                    <div
+                      className="h-full rounded-full bg-accent transition-[width] duration-500"
+                      style={{ width: `${Math.max(last ? 4 : 0, fill)}%` }}
+                    />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              closedByUser.current = false;
-              void run(async () => {
-                const data = await api("/api/bot/open");
-                setSt({ ...empty, ...data, logs: data.logs ?? [] });
-                await pullFrame();
-              }, "Chrome aberto");
-            }}
-            className="flex h-11 items-center justify-center gap-1.5 rounded-md bg-fg text-sm font-semibold text-bg disabled:opacity-40"
-          >
-            <Power className="size-3.5" />
-            Abrir
-          </button>
-          <button
-            type="button"
-            disabled={busy || !visible}
-            onClick={() => {
-              closedByUser.current = true;
-              shownRef.current = false;
-              sessionStorage.removeItem("c24-on");
-              if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current);
-              frameUrlRef.current = null;
-              setFrameUrl(null);
-              void run(() => api("/api/bot/close"));
-            }}
-            className="flex h-11 items-center justify-center gap-1.5 rounded-md border border-line text-sm font-semibold text-muted"
-          >
-            <Square className="size-3.5" />
-            Fechar
-          </button>
-        </div>
-
-        <button
-          type="button"
-          disabled={busy || !visible}
-          onClick={() => run(() => api("/api/bot/reload"), "Jogo recarregado, sessão mantida")}
-          className="flex h-11 items-center justify-center rounded-md border border-line text-sm font-semibold text-muted"
-        >
-          Recuperar tela
-        </button>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => run(() => api("/api/bot/account", { kind: "email" }), "Email enviado")}
-            className="flex h-11 items-center justify-center rounded-md bg-fg text-sm font-semibold text-bg disabled:opacity-40"
-          >
-            Clicar Email
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => run(() => api("/api/bot/phone"), "Phone enviado")}
-            className="flex h-11 items-center justify-center rounded-md bg-fg text-sm font-semibold text-bg disabled:opacity-40"
-          >
-            Clicar Phone
-          </button>
-        </div>
-
-        <button
-          type="button"
-          disabled={busy || !visible}
-          onClick={() => run(() => api("/api/bot/game"), "Foco no Craft World")}
-          className="flex h-11 items-center justify-center gap-1.5 rounded-md border border-line text-sm font-semibold text-muted"
-        >
-          <Undo2 className="size-3.5" />
-          Voltar ao Craft World
-        </button>
-
-        <button
-          type="button"
-          disabled={busy || !visible}
-          onClick={() =>
-            run(
-              () => api("/api/bot/auto", { on: !st.auto }),
-              st.auto ? "AUTO pausado" : "AUTO 24h ligado",
-            )
-          }
-          className={`flex h-12 items-center justify-center gap-2 rounded-lg text-sm font-semibold ${
-            st.auto ? "bg-accent text-bg" : "bg-accent-dim text-fg"
-          } disabled:opacity-40`}
-        >
-          <MousePointerClick className="size-4" />
-          {st.auto ? "AUTO ON — clicando" : "Ligar AUTO 24h"}
-        </button>
-
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg bg-surface-2 p-3 font-mono text-xs tabular-nums">
-          <dt className="text-faint">Cliques</dt>
-          <dd>{st.clicks}</dd>
-          <dt className="text-faint">Uptime</dt>
-          <dd>{fmtUptime(st.uptimeSec)}</dd>
-          <dt className="text-faint">Fábricas</dt>
-          <dd>{st.factories}</dd>
-          <dt className="text-faint">Minas</dt>
-          <dd>{st.mines}</dd>
-        </dl>
-
-        {st.error ? (
-          <p className="rounded-md bg-danger/15 px-3 py-2 text-xs text-danger">{st.error}</p>
+        {st.areas.length ? (
+          <section className="rounded-xl bg-surface p-5">
+            <h2 className="text-sm font-medium">Nodes</h2>
+            <ul className="mt-3 divide-y divide-line">
+              {st.areas.map((a) => (
+                <li key={a.id} className="flex items-center justify-between gap-3 py-2 font-mono text-sm tabular-nums">
+                  <span>{a.symbol}</span>
+                  <span className="text-faint">
+                    {a.factories} fáb.{a.idle ? ` · ${a.idle} parada${a.idle > 1 ? "s" : ""}` : a.factories ? " · rodando" : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
         ) : null}
-        {msg ? <p className="text-xs text-accent">{msg}</p> : null}
 
-        <p className="break-all font-mono text-xs text-faint">{st.url || "—"}</p>
+        <section className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy || !st.hasToken}
+            onClick={() => run(() => api("/api/bot/auto", { on: !st.auto }))}
+            className={`flex h-12 min-w-40 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-semibold disabled:opacity-40 ${
+              st.auto ? "bg-accent text-bg" : "bg-accent-dim text-fg"
+            }`}
+          >
+            {st.auto ? <Pause className="size-4" /> : <Play className="size-4" />}
+            {st.auto ? "Pausar AUTO" : "Ligar AUTO 24h"}
+          </button>
+          <button
+            type="button"
+            disabled={busy || !st.hasToken || st.auto}
+            onClick={() => run(() => api("/api/bot/cycle"))}
+            className="flex h-12 items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-semibold text-muted disabled:opacity-40"
+          >
+            <Zap className="size-4" />
+            1 ciclo
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => run(() => api("/api/bot/clearlogs"))}
+            className="flex h-12 items-center justify-center gap-2 rounded-lg border border-line px-4 text-sm font-semibold text-muted disabled:opacity-40"
+          >
+            <RotateCcw className="size-4" />
+            Limpar log
+          </button>
+        </section>
 
-        <button
-          type="button"
-          onClick={() =>
-            void run(async () => {
-              const data = await api("/api/bot/clearlogs");
-              setSt({ ...empty, ...data, logs: data.logs ?? [] });
-            })
-          }
-          className="h-9 rounded-md border border-line text-xs font-semibold text-muted"
-        >
-          Limpar logs
-        </button>
+        {st.error ? <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{st.error}</p> : null}
 
-        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto text-xs leading-snug text-faint">
+        <ul className="space-y-1 font-mono text-xs leading-snug text-faint">
           {st.logs.length === 0 ? (
-            <li>Sem atividade ainda.</li>
+            <li>Sem ciclo ainda.</li>
           ) : (
-            st.logs.map((l) => (
+            st.logs.slice(0, 18).map((l) => (
               <li key={l.t + l.text}>
-                <span className="font-mono text-[10px] text-line">
-                  {new Date(l.t).toLocaleTimeString("pt-BR", { hour12: false })}
-                </span>{" "}
-                <span className={l.text.startsWith("ERRO") ? "text-danger" : l.text.startsWith("OK") ? "text-accent" : ""}>
+                <span className="text-line">{new Date(l.t).toLocaleTimeString("pt-BR", { hour12: false })}</span>{" "}
+                <span className={l.text.startsWith("ERRO") ? "text-danger" : l.text.startsWith("Coleta real") || l.text.startsWith("OK") ? "text-accent" : ""}>
                   {l.text}
                 </span>
               </li>
             ))
           )}
         </ul>
-      </aside>
+        <p className="hidden">{now}</p>
+      </div>
     </div>
   );
 }

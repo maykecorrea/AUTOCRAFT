@@ -11,6 +11,7 @@ data/chrome-profile/
 data/session-token.json
 data/craft-session.json
 data/creds.json
+data/last-status.json
 screenshots/
 artifacts/
 attachments/
