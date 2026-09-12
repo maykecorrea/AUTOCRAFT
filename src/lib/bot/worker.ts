@@ -127,13 +127,12 @@ async function tick(){
   $("ago").textContent = ago(d.lastCycleAt);
   $("last").textContent = noCoin(d.lastCollected).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—";
   $("spent").textContent = (d.lastSpent&&d.lastSpent.length) ? "gastou "+d.lastSpent.map(r=>r.symbol+" "+signed(-Math.abs(r.amount))).join(" · ") : "sem gasto neste ciclo";
-  const maxC = Math.max(1, ...noCoin(d.collected).map(r=>r.amount||0));
-  $("col").innerHTML = noCoin(d.collected).map(r=>`<tr><td class="sym">${r.symbol}</td><td class="n pos">${fmt(r.amount)}</td><td class="n">${fmt(r.amount/h)}/h</td></tr>`).join("")||`<tr><td colspan=3>aguardando CLAIM</td></tr>`;
+  $("col").innerHTML = noCoin(d.collected).map(r=>"<tr><td class=sym>"+r.symbol+"</td><td class='n pos'>"+fmt(r.amount)+"</td><td class=n>"+fmt(r.amount/h)+"/h</td></tr>").join("")||"<tr><td colspan=3>aguardando CLAIM</td></tr>";
   const maxS = Math.max(1, ...noCoin(d.resources).map(r=>r.amount||0));
-  $("stock").innerHTML = noCoin(d.resources).map(r=>`<tr><td>${r.symbol}<div class="track"><i style="width:${Math.max(4,(r.amount/maxS)*100)}%"></i></div></td><td class="n">${fmt(r.amount)}</td></tr>`).join("")||`<tr><td colspan=2>—</td></tr>`;
-  $("delta").innerHTML = noCoin(d.lastCollected).map(r=>`<tr><td>${r.symbol}</td><td class="n pos">${signed(r.amount)}</td></tr>`).join("")||`<tr><td colspan=2>—</td></tr>`;
-  $("areas").innerHTML = (d.areas||[]).map(a=>`<tr><td>${a.symbol}</td><td class="n">${a.factories}</td><td class="n">${a.idle}</td></tr>`).join("")||`<tr><td colspan=3>—</td></tr>`;
-  $("hist").innerHTML = (d.history||[]).slice(0,16).map(h=>`<tr><td>${ago(h.t)}</td><td>${(h.collected||[]).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—"}</td><td class="n pos">${signed(h.xp)}</td><td class="n">${h.nodes||0}</td></tr>`).join("")||`<tr><td colspan=4>sem histórico</td></tr>`;
+  $("stock").innerHTML = noCoin(d.resources).map(r=>"<tr><td>"+r.symbol+"<div class=track><i style=width:"+Math.max(4,(r.amount/maxS)*100)+"%"+"></i></div></td><td class=n>"+fmt(r.amount)+"</td></tr>").join("")||"<tr><td colspan=2>—</td></tr>";
+  $("delta").innerHTML = noCoin(d.lastCollected).map(r=>"<tr><td>"+r.symbol+"</td><td class='n pos'>"+signed(r.amount)+"</td></tr>").join("")||"<tr><td colspan=2>—</td></tr>";
+  $("areas").innerHTML = (d.areas||[]).map(a=>"<tr><td>"+a.symbol+"</td><td class=n>"+a.factories+"</td><td class=n>"+a.idle+"</td></tr>").join("")||"<tr><td colspan=3>—</td></tr>";
+  $("hist").innerHTML = (d.history||[]).slice(0,16).map(h=>"<tr><td>"+ago(h.t)+"</td><td>"+((h.collected||[]).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—")+"</td><td class='n pos'>"+signed(h.xp)+"</td><td class=n>"+(h.nodes||0)+"</td></tr>").join("")||"<tr><td colspan=4>sem histórico</td></tr>";
   $("log").textContent = (d.logs||[]).map(x=>x.text).join("\\n");
 }
 tick();
