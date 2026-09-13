@@ -16,6 +16,10 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 h1{font:700 28px/1 "Pixelify Sans",sans-serif;letter-spacing:.02em}
 .sub{color:var(--mut);font-size:11px;margin-top:4px}
 .pill{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:11px}
+button{font:600 12px "IBM Plex Mono",ui-monospace,monospace;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 16px;cursor:pointer;min-height:40px}
+button:hover{border-color:var(--acc);color:var(--acc)}
+button.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .dot{width:8px;height:8px;border-radius:99px;background:#555}
 .dot.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
 .grid{display:grid;gap:10px}
@@ -47,7 +51,10 @@ pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-heigh
     <h1>Clique24</h1>
     <div class="sub">coleta real · GraphQL · VPS</div>
   </div>
-  <div class="pill"><span class="dot" id="dot"></span><span id="head">…</span></div>
+  <div class="actions">
+    <div class="pill"><span class="dot" id="dot"></span><span id="head">…</span></div>
+    <button id="btn" type="button">Pausar</button>
+  </div>
 </header>
 <section class="grid g4">
   <article class="card"><div class="k">Energia</div><div class="v" id="energy">—</div><div class="bar"><i id="ebar"></i></div></article>
@@ -98,6 +105,9 @@ async function tick(){
   const ok = d.auto && d.hasToken && !d.error;
   $("dot").className = "dot"+(ok?" on":"");
   $("head").textContent = (d.auto?"AUTO 15s":"pausado")+(d.hasToken?"":" · sem sessão")+(d.error?" · "+d.error:"");
+  const btn = $("btn");
+  btn.textContent = d.auto ? "Pausar" : "Ligar AUTO";
+  btn.className = d.auto ? "" : "on";
   $("energy").textContent = fmt(d.energy)+"/"+fmt(d.energyMax);
   $("ebar").style.width = (d.energyMax>0?Math.max(0,Math.min(100,(d.energy/d.energyMax)*100)):0)+"%";
   $("cycles").textContent = fmt(d.cycles);
@@ -118,6 +128,16 @@ async function tick(){
 }
 tick();
 setInterval(tick, 2000);
+$("btn").onclick = async () => {
+  $("btn").disabled = true;
+  try {
+    const cur = await fetch("/api/status").then(r=>r.json());
+    await fetch("/api/auto", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({on: !cur.auto})});
+    await tick();
+  } finally {
+    $("btn").disabled = false;
+  }
+};
 </script>
 </body>
 </html>

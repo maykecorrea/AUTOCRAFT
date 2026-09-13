@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,19 +11,43 @@ if (!bot.authHeader) {
   console.error("Clique24: falta data/session-token.json");
   process.exit(1);
 }
-bot.startAuto();
-console.log(`Clique24 AUTO ligado · ciclos ${bot.cycles} · token ok`);
+if (!bot.auto) bot.startAuto();
+console.log(`Clique24 worker · ciclos ${bot.cycles} · auto ${bot.auto}`);
 
 function payload() {
   const s = bot.status();
   return { ...s, logs: bot.logs.slice(0, 48), now: Date.now() };
 }
 
-createServer((req, res) => {
+function json(res: { writeHead: Function; end: Function }, data: unknown) {
+  res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(data));
+}
+
+async function readBody(req: IncomingMessage) {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as { on?: boolean };
+  } catch {
+    return {};
+  }
+}
+
+createServer(async (req, res) => {
   const path = (req.url ?? "/").split("?")[0];
+  const method = (req.method ?? "GET").toUpperCase();
   if (path === "/api/status" || path === "/status") {
-    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-    res.end(JSON.stringify(payload()));
+    json(res, payload());
+    return;
+  }
+  if (path === "/api/auto" && (method === "POST" || method === "PUT")) {
+    const body = await readBody(req);
+    const on = typeof body.on === "boolean" ? body.on : !bot.auto;
+    if (on) bot.startAuto();
+    else bot.stopAuto();
+    json(res, payload());
     return;
   }
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
