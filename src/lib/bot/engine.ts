@@ -12,6 +12,8 @@ import {
   type AreaSnap,
   type CycleReport,
   type GameSnap,
+  PRODUCTION_PATHS,
+  targetsForFocus,
 } from "./api";
 
 export type BotStatus = {
@@ -47,6 +49,8 @@ export type BotStatus = {
   history: { t: number; collected: { symbol: string; amount: number }[]; xp: number; nodes: number }[];
   factoryTargets: string[];
   factoryKinds: string[];
+  factoryFocus: string | null;
+  paths: { id: string; label: string; steps: readonly string[] }[];
 };
 
 export type BotLog = { t: number; text: string };
@@ -124,6 +128,7 @@ class Clique24 {
   lastCycleAt = 0;
   history: { t: number; collected: { symbol: string; amount: number }[]; xp: number; nodes: number }[] = [];
   factoryTargets: string[] = [];
+  factoryFocus: string | null = null;
 
   constructor() {
     this.loadToken();
@@ -185,6 +190,8 @@ class Clique24 {
       history: this.history,
       factoryTargets: this.factoryTargets,
       factoryKinds: this.factoryKinds(),
+      factoryFocus: this.factoryFocus,
+      paths: PRODUCTION_PATHS.map((p) => ({ id: p.id, label: p.label, steps: [...p.steps] })),
     };
   }
 
@@ -395,6 +402,7 @@ class Clique24 {
             sessionStartedAt: this.sessionStartedAt,
             lastCycleAt: this.lastCycleAt,
             factoryTargets: this.factoryTargets,
+            factoryFocus: this.factoryFocus,
           },
           null,
           2,
@@ -417,6 +425,7 @@ class Clique24 {
         sessionStartedAt?: number;
         lastCycleAt?: number;
         factoryTargets?: string[];
+        factoryFocus?: string | null;
       };
       if (s.clicks) this.clicks = s.clicks;
       if (s.collectedSession) this.collectedSession = s.collectedSession;
@@ -427,6 +436,7 @@ class Clique24 {
       if (Array.isArray(s.factoryTargets)) {
         this.factoryTargets = s.factoryTargets.map((x) => String(x).toUpperCase()).filter(Boolean);
       }
+      if (s.factoryFocus) this.factoryFocus = String(s.factoryFocus).toUpperCase();
       if (s.auto && this.authHeader) {
         const gap = this.lastCycleAt ? Date.now() - this.lastCycleAt : 0;
         if (gap > 120_000) {
@@ -467,12 +477,24 @@ class Clique24 {
 
   setFactoryTargets(symbols: string[]) {
     this.factoryTargets = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
+    this.factoryFocus = this.factoryTargets[0] ?? null;
     this.persistLedger();
     this.log(
       this.factoryTargets.length
-        ? `Prioridade de fábricas: ${this.factoryTargets.join(" → ")}`
-        : "Prioridade de fábricas: padrão (cadeia EARTH → MUD → …)",
+        ? `Linha: ${this.factoryFocus} · liga ${this.factoryTargets.join(" → ")}`
+        : "Linha: padrão (todas as cadeias).",
     );
+  }
+
+  setFactoryFocus(symbol: string | null) {
+    const want = symbol ? symbol.trim().toUpperCase() : "";
+    if (!want) {
+      this.factoryFocus = null;
+      this.setFactoryTargets([]);
+      return;
+    }
+    this.factoryFocus = want;
+    this.setFactoryTargets(targetsForFocus(want));
   }
 
   persistAuto() {
@@ -495,6 +517,7 @@ class Clique24 {
             sessionStartedAt: this.sessionStartedAt,
             lastCycleAt: this.lastCycleAt,
             factoryTargets: this.factoryTargets,
+            factoryFocus: this.factoryFocus,
           },
           null,
           2,

@@ -55,6 +55,23 @@ export type CycleReport = {
   energyAfter: number;
 };
 
+export const PRODUCTION_PATHS = [
+  { id: "earth", label: "Terra", steps: ["EARTH", "MUD", "CLAY", "SAND", "COPPER", "STEEL", "WIRE"] },
+  { id: "water", label: "Água", steps: ["WATER", "SEAWATER", "ALGAE"] },
+  { id: "fire", label: "Fogo", steps: ["FIRE", "HEAT", "LAVA"] },
+] as const;
+
+export function targetsForFocus(symbol: string): string[] {
+  const want = symbol.trim().toUpperCase();
+  if (!want) return [];
+  for (const path of PRODUCTION_PATHS) {
+    const i = (path.steps as readonly string[]).indexOf(want);
+    if (i < 0) continue;
+    return [...path.steps.slice(0, i + 1)].reverse();
+  }
+  return [want];
+}
+
 const SNAP_QUERY = `{
   account {
     id

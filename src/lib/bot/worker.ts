@@ -29,7 +29,11 @@ async function readBody(req: IncomingMessage) {
   for await (const c of req) chunks.push(c as Buffer);
   if (!chunks.length) return {};
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as { on?: boolean; symbols?: string[] };
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+      on?: boolean;
+      symbols?: string[];
+      target?: string | null;
+    };
   } catch {
     return {};
   }
@@ -52,10 +56,14 @@ createServer(async (req, res) => {
   }
   if (path === "/api/targets" && (method === "POST" || method === "PUT")) {
     const body = await readBody(req);
-    const symbols = Array.isArray((body as { symbols?: unknown }).symbols)
-      ? ((body as { symbols: unknown[] }).symbols as unknown[]).map((s) => String(s))
-      : [];
+    const symbols = Array.isArray(body.symbols) ? body.symbols.map((s) => String(s)) : [];
     bot.setFactoryTargets(symbols);
+    json(res, payload());
+    return;
+  }
+  if (path === "/api/focus" && (method === "POST" || method === "PUT")) {
+    const body = await readBody(req);
+    bot.setFactoryFocus(body.target ?? null);
     json(res, payload());
     return;
   }

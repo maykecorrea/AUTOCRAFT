@@ -23,6 +23,18 @@ button.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
 .chip.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
 .chip b{margin-right:6px;opacity:.7}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.paths{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:12px}
+@media(max-width:720px){.paths{grid-template-columns:1fr}}
+.path{display:flex;flex-direction:column;align-items:center}
+.path h3{font:600 11px "Pixelify Sans",sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:8px}
+.stack{display:flex;flex-direction:column-reverse;align-items:stretch;width:100%;max-width:160px}
+.sq{display:flex;align-items:center;justify-content:center;min-height:44px;width:100%;padding:8px 6px;border:1px solid var(--line);background:var(--dim);color:var(--mut);border-radius:8px;cursor:pointer;font:600 11px "IBM Plex Mono",ui-monospace,monospace;text-align:center}
+.sq:hover{border-color:var(--acc);color:var(--ink)}
+.sq.on{background:#123127;color:var(--ink);border-color:#2a6b52}
+.sq.focus{background:var(--acc);color:#06120e;border-color:var(--acc);box-shadow:0 0 14px rgba(61,255,176,.25)}
+.sq.miss{opacity:.4}
+.stem{width:2px;height:10px;background:var(--line);margin:0 auto}
+.stem.on{background:var(--acc)}
 .dot{width:8px;height:8px;border-radius:99px;background:#555}
 .dot.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
 .grid{display:grid;gap:10px}
@@ -66,9 +78,9 @@ pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-heigh
   <article class="card"><div class="k">Último ciclo</div><div class="v" id="ago">—</div><div class="s" id="last">—</div></article>
 </section>
 <section class="card" style="margin-top:10px">
-  <div class="k">Fábricas a ligar</div>
-  <div class="s" id="prio">Nenhuma marcada = cadeia padrão (EARTH → MUD → …). A ordem é a prioridade.</div>
-  <div class="chips" id="chips"></div>
+  <div class="k">Linha de produção</div>
+  <div class="s" id="prio">Clica no quadrado do recurso que queres no fim da linha. O bot liga essa fábrica e todas as de baixo.</div>
+  <div class="paths" id="paths"></div>
 </section>
 <div class="grid g3" style="margin-top:10px">
   <article class="card">
@@ -134,12 +146,26 @@ async function tick(){
   $("hist").innerHTML = (d.history||[]).slice(0,16).map(x=>tr("<td>"+ago(x.t)+"</td><td>"+((x.collected||[]).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—")+"</td><td class='n pos'>"+signed(x.xp)+"</td><td class=n>"+(x.nodes||0)+"</td>")).join("")||tr("<td colspan=4>sem histórico</td>");
   $("log").textContent = (d.logs||[]).map(x=>x.text).join("\n");
   const want = (d.factoryTargets||[]).map(s=>s.toUpperCase());
-  $("prio").textContent = want.length ? ("Prioridade: "+want.join(" → ")) : "Nenhuma marcada = cadeia padrão (EARTH → MUD → …). Clique para incluir; de novo para tirar.";
-  const kinds = d.factoryKinds && d.factoryKinds.length ? d.factoryKinds : ["EARTH","MUD","SAND","CLAY","COPPER","STEEL"];
-  $("chips").innerHTML = kinds.map(sym=>{
-    const i = want.indexOf(sym);
-    const on = i>=0;
-    return "<button type=button class='chip"+(on?" on":"")+"' data-sym='"+sym+"'>"+(on?"<b>"+(i+1)+"</b>":"")+sym+"</button>";
+  const focus = (d.factoryFocus||"").toUpperCase();
+  $("prio").textContent = focus
+    ? ("Foco "+focus+" · liga "+want.slice().reverse().join(" → "))
+    : "Clica no quadrado do recurso final. Liga a linha inteira até ele. De novo no mesmo = limpa.";
+  const kinds = new Set((d.factoryKinds||[]).map(s=>s.toUpperCase()));
+  const paths = d.paths && d.paths.length ? d.paths : [
+    {id:"earth",label:"Terra",steps:["EARTH","MUD","CLAY","SAND","COPPER","STEEL","WIRE"]},
+    {id:"water",label:"Água",steps:["WATER","SEAWATER","ALGAE"]},
+    {id:"fire",label:"Fogo",steps:["FIRE","HEAT","LAVA"]}
+  ];
+  $("paths").innerHTML = paths.map(p=>{
+    const cells = p.steps.map((sym, idx)=>{
+      const on = want.indexOf(sym)>=0;
+      const isFocus = focus===sym;
+      const miss = kinds.size && !kinds.has(sym);
+      const cls = "sq"+(isFocus?" focus":on?" on":"")+(miss?" miss":"");
+      const stem = idx===0 ? "" : "<div class='stem"+(on?" on":"")+"'></div>";
+      return stem+"<button type=button class='"+cls+"' data-sym='"+sym+"'>"+sym+"</button>";
+    }).join("");
+    return "<div class=path><h3>"+p.label+"</h3><div class=stack>"+cells+"</div></div>";
   }).join("");
 }
 tick();
@@ -154,16 +180,13 @@ $("btn").onclick = async () => {
     $("btn").disabled = false;
   }
 };
-$("chips").onclick = async (ev) => {
+$("paths").onclick = async (ev) => {
   const t = ev.target.closest ? ev.target.closest("[data-sym]") : null;
   if(!t) return;
   const sym = t.getAttribute("data-sym");
   const cur = await fetch("/api/status").then(r=>r.json());
-  let want = (cur.factoryTargets||[]).map(s=>s.toUpperCase());
-  const i = want.indexOf(sym);
-  if(i>=0) want.splice(i,1);
-  else want.push(sym);
-  await fetch("/api/targets", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({symbols: want})});
+  const next = (cur.factoryFocus||"").toUpperCase()===sym ? null : sym;
+  await fetch("/api/focus", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({target: next})});
   await tick();
 };
 </script>
