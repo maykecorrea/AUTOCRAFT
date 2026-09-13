@@ -45,6 +45,8 @@ export type BotStatus = {
   sessionStartedAt: number;
   lastCycleAt: number;
   history: { t: number; collected: { symbol: string; amount: number }[]; xp: number; nodes: number }[];
+  factoryTargets: string[];
+  factoryKinds: string[];
 };
 
 export type BotLog = { t: number; text: string };
@@ -121,6 +123,7 @@ class Clique24 {
   sessionStartedAt = 0;
   lastCycleAt = 0;
   history: { t: number; collected: { symbol: string; amount: number }[]; xp: number; nodes: number }[] = [];
+  factoryTargets: string[] = [];
 
   constructor() {
     this.loadToken();
@@ -180,6 +183,8 @@ class Clique24 {
       sessionStartedAt: this.sessionStartedAt,
       lastCycleAt: this.lastCycleAt,
       history: this.history,
+      factoryTargets: this.factoryTargets,
+      factoryKinds: this.factoryKinds(),
     };
   }
 
@@ -388,6 +393,8 @@ class Clique24 {
             xpCollected: this.xpCollected,
             cycles: this.cycles,
             sessionStartedAt: this.sessionStartedAt,
+            lastCycleAt: this.lastCycleAt,
+            factoryTargets: this.factoryTargets,
           },
           null,
           2,
@@ -408,13 +415,23 @@ class Clique24 {
         xpCollected?: number;
         cycles?: number;
         sessionStartedAt?: number;
+        lastCycleAt?: number;
+        factoryTargets?: string[];
       };
       if (s.clicks) this.clicks = s.clicks;
       if (s.collectedSession) this.collectedSession = s.collectedSession;
       if (s.xpCollected) this.xpCollected = s.xpCollected;
       if (s.cycles) this.cycles = s.cycles;
       if (s.sessionStartedAt) this.sessionStartedAt = s.sessionStartedAt;
+      if (s.lastCycleAt) this.lastCycleAt = s.lastCycleAt;
+      if (Array.isArray(s.factoryTargets)) {
+        this.factoryTargets = s.factoryTargets.map((x) => String(x).toUpperCase()).filter(Boolean);
+      }
       if (s.auto && this.authHeader) {
+        const gap = this.lastCycleAt ? Date.now() - this.lastCycleAt : 0;
+        if (gap > 120_000) {
+          this.log(`Revivi depois de ${Math.round(gap / 60000)} min parado. Religo o AUTO.`);
+        }
         setTimeout(() => this.startAuto(), 400);
       }
     } catch {
@@ -429,6 +446,33 @@ class Clique24 {
 
   keepSnap(snap: GameSnap) {
     keepBotSnap(this, snap);
+  }
+
+  factoryKinds(): string[] {
+    const fromSnap = [
+      ...(this.snap?.factories ?? this.lastGoodSnap?.factories ?? []).map((f) => f.symbol),
+      ...(this.snap?.areas ?? this.lastGoodSnap?.areas ?? []).map((a) => a.symbol),
+    ];
+    const base = ["EARTH", "MUD", "SAND", "CLAY", "COPPER", "STEEL", "WATER"];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const s of [...base, ...fromSnap, ...this.factoryTargets]) {
+      const k = String(s || "").toUpperCase();
+      if (!k || k === "COIN" || seen.has(k)) continue;
+      seen.add(k);
+      out.push(k);
+    }
+    return out;
+  }
+
+  setFactoryTargets(symbols: string[]) {
+    this.factoryTargets = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
+    this.persistLedger();
+    this.log(
+      this.factoryTargets.length
+        ? `Prioridade de fábricas: ${this.factoryTargets.join(" → ")}`
+        : "Prioridade de fábricas: padrão (cadeia EARTH → MUD → …)",
+    );
   }
 
   persistAuto() {
@@ -449,6 +493,8 @@ class Clique24 {
             xpCollected: this.xpCollected,
             cycles: this.cycles,
             sessionStartedAt: this.sessionStartedAt,
+            lastCycleAt: this.lastCycleAt,
+            factoryTargets: this.factoryTargets,
           },
           null,
           2,
@@ -831,7 +877,7 @@ export async function runAutoTick(bot: Clique24) {
     }
     bot.lastCycleAt = Date.now();
     try {
-      const report = await runApiCycle(auth, (s) => bot.log(s));
+      const report = await runApiCycle(auth, (s) => bot.log(s), 100, bot.factoryTargets);
       keepBotSnap(bot, report.snap);
       bot.applyReport(report);
       bot.error = null;
@@ -841,7 +887,7 @@ export async function runAutoTick(bot: Clique24) {
       if (isAuthError(msg)) {
         bot.log("Sessão caiu. Renovando token…");
         const retry = await ensureBotAuth(bot, true);
-        const report = await runApiCycle(retry, (s) => bot.log(s));
+        const report = await runApiCycle(retry, (s) => bot.log(s), 100, bot.factoryTargets);
         keepBotSnap(bot, report.snap);
         bot.applyReport(report);
         bot.error = null;

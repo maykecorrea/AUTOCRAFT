@@ -29,7 +29,7 @@ async function readBody(req: IncomingMessage) {
   for await (const c of req) chunks.push(c as Buffer);
   if (!chunks.length) return {};
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as { on?: boolean };
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as { on?: boolean; symbols?: string[] };
   } catch {
     return {};
   }
@@ -47,6 +47,15 @@ createServer(async (req, res) => {
     const on = typeof body.on === "boolean" ? body.on : !bot.auto;
     if (on) bot.startAuto();
     else bot.stopAuto();
+    json(res, payload());
+    return;
+  }
+  if (path === "/api/targets" && (method === "POST" || method === "PUT")) {
+    const body = await readBody(req);
+    const symbols = Array.isArray((body as { symbols?: unknown }).symbols)
+      ? ((body as { symbols: unknown[] }).symbols as unknown[]).map((s) => String(s))
+      : [];
+    bot.setFactoryTargets(symbols);
     json(res, payload());
     return;
   }

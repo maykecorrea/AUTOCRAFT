@@ -19,7 +19,10 @@ h1{font:700 28px/1 "Pixelify Sans",sans-serif;letter-spacing:.02em}
 button{font:600 12px "IBM Plex Mono",ui-monospace,monospace;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 16px;cursor:pointer;min-height:40px}
 button:hover{border-color:var(--acc);color:var(--acc)}
 button.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
-.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--dim);color:var(--mut);border-radius:999px;padding:7px 12px;font:600 11px "IBM Plex Mono",ui-monospace,monospace;cursor:pointer;min-height:36px}
+.chip.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
+.chip b{margin-right:6px;opacity:.7}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .dot{width:8px;height:8px;border-radius:99px;background:#555}
 .dot.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
 .grid{display:grid;gap:10px}
@@ -61,6 +64,11 @@ pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-heigh
   <article class="card"><div class="k">Ciclos</div><div class="v" id="cycles">—</div><div class="s" id="sess">—</div></article>
   <article class="card"><div class="k">XP da sessão</div><div class="v pos" id="xps">—</div><div class="s" id="xpa">—</div></article>
   <article class="card"><div class="k">Último ciclo</div><div class="v" id="ago">—</div><div class="s" id="last">—</div></article>
+</section>
+<section class="card" style="margin-top:10px">
+  <div class="k">Fábricas a ligar</div>
+  <div class="s" id="prio">Nenhuma marcada = cadeia padrão (EARTH → MUD → …). A ordem é a prioridade.</div>
+  <div class="chips" id="chips"></div>
 </section>
 <div class="grid g3" style="margin-top:10px">
   <article class="card">
@@ -125,6 +133,14 @@ async function tick(){
   $("areas").innerHTML = (d.areas||[]).map(a=>tr("<td>"+a.symbol+"</td><td class=n>"+a.factories+"</td><td class=n>"+a.idle+"</td>")).join("")||tr("<td colspan=3>—</td>");
   $("hist").innerHTML = (d.history||[]).slice(0,16).map(x=>tr("<td>"+ago(x.t)+"</td><td>"+((x.collected||[]).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—")+"</td><td class='n pos'>"+signed(x.xp)+"</td><td class=n>"+(x.nodes||0)+"</td>")).join("")||tr("<td colspan=4>sem histórico</td>");
   $("log").textContent = (d.logs||[]).map(x=>x.text).join("\n");
+  const want = (d.factoryTargets||[]).map(s=>s.toUpperCase());
+  $("prio").textContent = want.length ? ("Prioridade: "+want.join(" → ")) : "Nenhuma marcada = cadeia padrão (EARTH → MUD → …). Clique para incluir; de novo para tirar.";
+  const kinds = d.factoryKinds && d.factoryKinds.length ? d.factoryKinds : ["EARTH","MUD","SAND","CLAY","COPPER","STEEL"];
+  $("chips").innerHTML = kinds.map(sym=>{
+    const i = want.indexOf(sym);
+    const on = i>=0;
+    return "<button type=button class='chip"+(on?" on":"")+"' data-sym='"+sym+"'>"+(on?"<b>"+(i+1)+"</b>":"")+sym+"</button>";
+  }).join("");
 }
 tick();
 setInterval(tick, 2000);
@@ -137,6 +153,18 @@ $("btn").onclick = async () => {
   } finally {
     $("btn").disabled = false;
   }
+};
+$("chips").onclick = async (ev) => {
+  const t = ev.target.closest ? ev.target.closest("[data-sym]") : null;
+  if(!t) return;
+  const sym = t.getAttribute("data-sym");
+  const cur = await fetch("/api/status").then(r=>r.json());
+  let want = (cur.factoryTargets||[]).map(s=>s.toUpperCase());
+  const i = want.indexOf(sym);
+  if(i>=0) want.splice(i,1);
+  else want.push(sym);
+  await fetch("/api/targets", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({symbols: want})});
+  await tick();
 };
 </script>
 </body>

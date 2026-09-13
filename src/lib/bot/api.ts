@@ -367,7 +367,12 @@ function cool(id: string, ms: number) {
 /** Unity HUD energy = account.power / powerState.maxPower. Nodes after a factory = CLAIM_AREA. */
 export const CYCLE_MS = 15_000;
 
-export async function runApiCycle(auth: string, log: (s: string) => void, energyMin = 100): Promise<CycleReport> {
+export async function runApiCycle(
+  auth: string,
+  log: (s: string) => void,
+  energyMin = 100,
+  factoryTargets: string[] = [],
+): Promise<CycleReport> {
   const before = await fetchSnapshot(auth);
   const idleFac = before.factories.filter((f) => f.idle).length;
   log(
@@ -456,13 +461,24 @@ export async function runApiCycle(auth: string, log: (s: string) => void, energy
     log(`Energia baixa (${energyNow}/${mid.energyMax}, piso ${reserve}). Só coleto — 1 fábrica quando recuperar.`);
   } else {
     let skippedRes = 0;
-    const idle = mid.factories
-      .filter((f) => f.idle && cooledDown(f.id))
-      .sort((a, b) => {
+    const want = factoryTargets.map((s) => s.toUpperCase()).filter(Boolean);
+    let idle = mid.factories.filter((f) => f.idle && cooledDown(f.id));
+    if (want.length) {
+      idle = idle.filter((f) => want.includes(f.symbol.toUpperCase()));
+      idle.sort((a, b) => {
+        const ia = want.indexOf(a.symbol.toUpperCase());
+        const ib = want.indexOf(b.symbol.toUpperCase());
+        if (ia !== ib) return ia - ib;
+        return b.level - a.level;
+      });
+      log(`Prioridade: ${want.join(" → ")} · ${idle.length} idle na lista.`);
+    } else {
+      idle.sort((a, b) => {
         const ra = (START_RANK[a.symbol] ?? 20) * 100 + a.level;
         const rb = (START_RANK[b.symbol] ?? 20) * 100 + b.level;
         return ra - rb;
       });
+    }
 
     for (const fac of idle) {
       if (started >= 1) break;
