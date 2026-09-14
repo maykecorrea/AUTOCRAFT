@@ -500,12 +500,21 @@ class Clique24 {
       this.setFactoryTargets([]);
       return;
     }
+    if (this.fullPower) {
+      this.fullPower = false;
+      this.log("Linha marcada: FULL POWER desligado pra não conflitar.");
+    }
     this.factoryFocus = want;
     this.setFactoryTargets(targetsForFocus(want));
   }
 
   setFullPower(on: boolean) {
     this.fullPower = !!on;
+    if (this.fullPower && (this.factoryFocus || this.factoryTargets.length)) {
+      this.factoryFocus = null;
+      this.factoryTargets = [];
+      this.log("FULL POWER: linha de produção limpa (não mistura com o modo máximo).");
+    }
     this.persistLedger();
     this.log(this.fullPower ? "FULL POWER ligado — START em todas as idle, ciclo 8s, sem reserva." : "FULL POWER desligado — volta ao modo 1 fábrica/ciclo.");
   }
