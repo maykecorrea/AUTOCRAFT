@@ -67,6 +67,13 @@ createServer(async (req, res) => {
     json(res, payload());
     return;
   }
+  if (path === "/api/power" && (method === "POST" || method === "PUT")) {
+    const body = await readBody(req);
+    const on = typeof body.on === "boolean" ? body.on : !bot.fullPower;
+    bot.setFullPower(on);
+    json(res, payload());
+    return;
+  }
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
   res.end(PAGE);
 }).listen(PORT, "0.0.0.0", () => {

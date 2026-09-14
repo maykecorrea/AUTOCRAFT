@@ -383,12 +383,14 @@ function cool(id: string, ms: number) {
 
 /** Unity HUD energy = account.power / powerState.maxPower. Nodes after a factory = CLAIM_AREA. */
 export const CYCLE_MS = 15_000;
+export const FULL_POWER_CYCLE_MS = 8_000;
 
 export async function runApiCycle(
   auth: string,
   log: (s: string) => void,
   energyMin = 100,
   factoryTargets: string[] = [],
+  fullPower = false,
 ): Promise<CycleReport> {
   const before = await fetchSnapshot(auth);
   const idleFac = before.factories.filter((f) => f.idle).length;
@@ -454,7 +456,8 @@ export async function runApiCycle(
     CLAY: 4,
     COPPER: 5,
   };
-  const reserve = Math.max(40, Math.round((mid.energyMax || 1250) * 0.04));
+  const reserve = fullPower ? 0 : Math.max(40, Math.round((mid.energyMax || 1250) * 0.04));
+  const maxStart = fullPower ? 10_000 : 1;
   let started = 0;
   let spent: Resource[] = [];
   let after = mid;
@@ -474,12 +477,13 @@ export async function runApiCycle(
     }
   }
 
-  if (energyNow < reserve) {
+  if (!fullPower && energyNow < reserve) {
     log(`Energia baixa (${energyNow}/${mid.energyMax}, piso ${reserve}). Só coleto — 1 fábrica quando recuperar.`);
   } else {
+    if (fullPower) log(`FULL POWER · energia ${energyNow}/${mid.energyMax} · sem teto de START.`);
     let skippedRes = 0;
     const want = factoryTargets.map((s) => s.toUpperCase()).filter(Boolean);
-    let idle = mid.factories.filter((f) => f.idle && cooledDown(f.id));
+    let idle = mid.factories.filter((f) => f.idle && (fullPower || cooledDown(f.id)));
     if (want.length) {
       idle = idle.filter((f) => want.includes(f.symbol.toUpperCase()));
       idle.sort((a, b) => {
@@ -498,12 +502,12 @@ export async function runApiCycle(
     }
 
     for (const fac of idle) {
-      if (started >= 1) break;
-      if (energyNow < reserve) {
+      if (started >= maxStart) break;
+      if (!fullPower && energyNow < reserve) {
         log(`Paro de ligar: energia ${energyNow} < ${reserve}.`);
         break;
       }
-      if (fac.level >= 4 && energyNow < 300) {
+      if (!fullPower && fac.level >= 4 && energyNow < 300) {
         continue;
       }
       const stockBefore = after.resources;
@@ -511,14 +515,18 @@ export async function runApiCycle(
       if (ingestOk(res)) {
         started += 1;
         log(`OK: START fábrica ${fac.symbol} lv${fac.level}`);
-        const snap = await fetchSnapshot(auth);
-        energyNow = snap.energy;
-        after = snap;
-        const burn = negatives(resourceDiff(stockBefore, snap.resources));
-        const heavy = burn.find((r) => r.amount >= 250);
-        if (heavy) {
-          cool(fac.id, 120_000);
-          log(`Essa ${fac.symbol} comeu ${Math.round(heavy.amount)} ${heavy.symbol}. Espero 2 min pra não secar o estoque.`);
+        if (!fullPower || started % 5 === 0) {
+          const snap = await fetchSnapshot(auth);
+          energyNow = snap.energy;
+          after = snap;
+          if (!fullPower) {
+            const burn = negatives(resourceDiff(stockBefore, snap.resources));
+            const heavy = burn.find((r) => r.amount >= 250);
+            if (heavy) {
+              cool(fac.id, 120_000);
+              log(`Essa ${fac.symbol} comeu ${Math.round(heavy.amount)} ${heavy.symbol}. Espero 2 min pra não secar o estoque.`);
+            }
+          }
         }
         continue;
       }
@@ -526,19 +534,20 @@ export async function runApiCycle(
       if (/not idle/i.test(err)) continue;
       if (/not enough balance/i.test(err)) {
         skippedRes += 1;
-        cool(fac.id, 90_000);
+        cool(fac.id, fullPower ? 20_000 : 90_000);
         continue;
       }
       if (/not enough.*power|insufficient power|not enough energy/i.test(err)) {
         log(`Skip: ${fac.symbol} lv${fac.level} pede mais energia que ${energyNow}.`);
-        cool(fac.id, 45_000);
+        cool(fac.id, fullPower ? 15_000 : 45_000);
         break;
       }
       if (err) log(`Fábrica ${fac.symbol} lv${fac.level}: ${err.split("\n")[0].slice(0, 120)}`);
     }
-    if (skippedRes) log(`Skip: ${skippedRes} fábricas sem matéria-prima (offline 90s).`);
+    if (skippedRes) log(`Skip: ${skippedRes} fábricas sem matéria-prima (offline ${fullPower ? 20 : 90}s).`);
 
     if (started) {
+      if (fullPower) after = await fetchSnapshot(auth);
       spent = negatives(resourceDiff(mid.resources, after.resources));
       if (spent.length) log(`Gastou nas fábricas: ${formatList(spent, "-")}`);
     }

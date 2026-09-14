@@ -5,6 +5,7 @@ import {
   parseAccount,
   runApiCycle,
   CYCLE_MS,
+  FULL_POWER_CYCLE_MS,
   refreshIdToken,
   isJwtExpiring,
   isAuthError,
@@ -50,6 +51,7 @@ export type BotStatus = {
   factoryTargets: string[];
   factoryKinds: string[];
   factoryFocus: string | null;
+  fullPower: boolean;
   paths: { id: string; label: string; steps: readonly string[] }[];
 };
 
@@ -129,6 +131,7 @@ class Clique24 {
   history: { t: number; collected: { symbol: string; amount: number }[]; xp: number; nodes: number }[] = [];
   factoryTargets: string[] = [];
   factoryFocus: string | null = null;
+  fullPower = false;
 
   constructor() {
     this.loadToken();
@@ -191,6 +194,7 @@ class Clique24 {
       factoryTargets: this.factoryTargets,
       factoryKinds: this.factoryKinds(),
       factoryFocus: this.factoryFocus,
+      fullPower: this.fullPower,
       paths: PRODUCTION_PATHS.map((p) => ({ id: p.id, label: p.label, steps: [...p.steps] })),
     };
   }
@@ -403,6 +407,7 @@ class Clique24 {
             lastCycleAt: this.lastCycleAt,
             factoryTargets: this.factoryTargets,
             factoryFocus: this.factoryFocus,
+            fullPower: this.fullPower,
           },
           null,
           2,
@@ -426,6 +431,7 @@ class Clique24 {
         lastCycleAt?: number;
         factoryTargets?: string[];
         factoryFocus?: string | null;
+        fullPower?: boolean;
       };
       if (s.clicks) this.clicks = s.clicks;
       if (s.collectedSession) this.collectedSession = s.collectedSession;
@@ -437,6 +443,7 @@ class Clique24 {
         this.factoryTargets = s.factoryTargets.map((x) => String(x).toUpperCase()).filter(Boolean);
       }
       if (s.factoryFocus) this.factoryFocus = String(s.factoryFocus).toUpperCase();
+      if (typeof s.fullPower === "boolean") this.fullPower = s.fullPower;
       if (s.auto && this.authHeader) {
         const gap = this.lastCycleAt ? Date.now() - this.lastCycleAt : 0;
         if (gap > 120_000) {
@@ -497,6 +504,12 @@ class Clique24 {
     this.setFactoryTargets(targetsForFocus(want));
   }
 
+  setFullPower(on: boolean) {
+    this.fullPower = !!on;
+    this.persistLedger();
+    this.log(this.fullPower ? "FULL POWER ligado — START em todas as idle, ciclo 8s, sem reserva." : "FULL POWER desligado — volta ao modo 1 fábrica/ciclo.");
+  }
+
   persistAuto() {
     this.persistLedger();
   }
@@ -518,6 +531,7 @@ class Clique24 {
             lastCycleAt: this.lastCycleAt,
             factoryTargets: this.factoryTargets,
             factoryFocus: this.factoryFocus,
+            fullPower: this.fullPower,
           },
           null,
           2,
@@ -722,7 +736,7 @@ class Clique24 {
     }
     if (!this.auto) return;
     if (this.autoTimer) clearTimeout(this.autoTimer);
-    const wait = typeof CYCLE_MS === "number" ? CYCLE_MS : 15_000;
+    const wait = this.fullPower ? FULL_POWER_CYCLE_MS : typeof CYCLE_MS === "number" ? CYCLE_MS : 15_000;
     this.autoTimer = setTimeout(() => this.loop(), wait);
   }
 
@@ -900,7 +914,7 @@ export async function runAutoTick(bot: Clique24) {
     }
     bot.lastCycleAt = Date.now();
     try {
-      const report = await runApiCycle(auth, (s) => bot.log(s), 100, bot.factoryTargets);
+      const report = await runApiCycle(auth, (s) => bot.log(s), 100, bot.factoryTargets, bot.fullPower);
       keepBotSnap(bot, report.snap);
       bot.applyReport(report);
       bot.error = null;
@@ -910,7 +924,7 @@ export async function runAutoTick(bot: Clique24) {
       if (isAuthError(msg)) {
         bot.log("Sessão caiu. Renovando token…");
         const retry = await ensureBotAuth(bot, true);
-        const report = await runApiCycle(retry, (s) => bot.log(s), 100, bot.factoryTargets);
+        const report = await runApiCycle(retry, (s) => bot.log(s), 100, bot.factoryTargets, bot.fullPower);
         keepBotSnap(bot, report.snap);
         bot.applyReport(report);
         bot.error = null;
