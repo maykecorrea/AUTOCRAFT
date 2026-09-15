@@ -13,8 +13,10 @@ import {
   type AreaSnap,
   type CycleReport,
   type GameSnap,
-  PRODUCTION_PATHS,
   targetsForFocus,
+  collectSymbols,
+  livePaths,
+  routeKey,
 } from "./api";
 
 export type BotStatus = {
@@ -132,6 +134,7 @@ class Clique24 {
   factoryTargets: string[] = [];
   factoryFocus: string | null = null;
   fullPower = false;
+  routeStamp = "";
 
   constructor() {
     this.loadToken();
@@ -195,7 +198,7 @@ class Clique24 {
       factoryKinds: this.factoryKinds(),
       factoryFocus: this.factoryFocus,
       fullPower: this.fullPower,
-      paths: PRODUCTION_PATHS.map((p) => ({ id: p.id, label: p.label, steps: [...p.steps] })),
+      paths: livePaths(this.factoryKinds()),
     };
   }
 
@@ -466,16 +469,13 @@ class Clique24 {
   }
 
   factoryKinds(): string[] {
-    const fromSnap = [
-      ...(this.snap?.factories ?? this.lastGoodSnap?.factories ?? []).map((f) => f.symbol),
-      ...(this.snap?.areas ?? this.lastGoodSnap?.areas ?? []).map((a) => a.symbol),
-    ];
-    const base = ["EARTH", "MUD", "SAND", "CLAY", "COPPER", "STEEL", "WATER"];
+    const snap = this.snap ?? this.lastGoodSnap;
+    const fromSnap = collectSymbols(snap);
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const s of [...base, ...fromSnap, ...this.factoryTargets]) {
+    for (const s of [...fromSnap, ...this.factoryTargets]) {
       const k = String(s || "").toUpperCase();
-      if (!k || k === "COIN" || seen.has(k)) continue;
+      if (!k || seen.has(k)) continue;
       seen.add(k);
       out.push(k);
     }
@@ -799,6 +799,16 @@ export function keepBotSnap(bot: Clique24, snap: GameSnap) {
   else if (bot.lastEnergyMax > 0) snap = { ...snap, energyMax: bot.lastEnergyMax };
   bot.snap = snap;
   if (snap.energyMax > 0) bot.lastGoodSnap = snap;
+  const next = routeKey(collectSymbols(snap));
+  if (bot.routeStamp && next !== bot.routeStamp) {
+    const prev = new Set(bot.routeStamp.split(",").filter(Boolean));
+    const now = new Set(next.split(",").filter(Boolean));
+    const added = [...now].filter((s) => !prev.has(s));
+    const gone = [...prev].filter((s) => !now.has(s));
+    if (added.length) bot.log(`Nova rota: ${added.join(" · ")}`);
+    if (gone.length) bot.log(`Rota saiu (fábrica trocada): ${gone.join(" · ")}`);
+  }
+  bot.routeStamp = next;
 }
 
 export function knownEnergyMax(bot: Clique24): number | null {

@@ -56,20 +56,101 @@ export type CycleReport = {
 };
 
 export const PRODUCTION_PATHS = [
-  { id: "earth", label: "Terra", steps: ["EARTH", "MUD", "CLAY", "SAND", "COPPER", "STEEL", "WIRE"] },
-  { id: "water", label: "Água", steps: ["WATER", "SEAWATER", "ALGAE"] },
-  { id: "fire", label: "Fogo", steps: ["FIRE", "HEAT", "LAVA"] },
+  { id: "earth", label: "Terra", steps: ["EARTH", "MUD", "CLAY", "SAND", "COPPER", "STEEL", "WIRE", "SCREWS"] },
+  { id: "water", label: "Água", steps: ["WATER", "SEAWATER", "ALGAE", "OXYGEN"] },
+  { id: "fire", label: "Fogo", steps: ["FIRE", "HEAT", "LAVA", "GAS"] },
+  { id: "special", label: "Especial", steps: ["CERAMICS", "GLASS", "STONE", "STEAM", "CEMENT", "FUEL", "OIL", "ACID"] },
 ] as const;
+
+/** What each factory consumes. Used to focus the whole chain up to a target. */
+export const RECIPE_PARENTS: Record<string, string[]> = {
+  MUD: ["EARTH"],
+  CLAY: ["MUD"],
+  SAND: ["CLAY"],
+  COPPER: ["SAND"],
+  STEEL: ["COPPER"],
+  WIRE: ["COPPER"],
+  SCREWS: ["STEEL"],
+  SEAWATER: ["WATER"],
+  ALGAE: ["SEAWATER"],
+  OXYGEN: ["ALGAE"],
+  HEAT: ["FIRE"],
+  LAVA: ["HEAT"],
+  GAS: ["LAVA"],
+  CERAMICS: ["CLAY", "SEAWATER"],
+  GLASS: ["SAND", "HEAT"],
+  STONE: ["COPPER", "ALGAE"],
+  STEAM: ["WATER", "HEAT"],
+  CEMENT: ["STONE", "CERAMICS"],
+  FUEL: ["OIL"],
+};
+
+const SKIP_SYMBOLS = new Set(["COIN", "DUST", "PAPERWRAP", "SANDWRAP", "BOOK"]);
+
+export function collectSymbols(snap: {
+  factories?: { symbol: string }[];
+  areas?: { symbol: string }[];
+  resources?: { symbol: string }[];
+} | null | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (s: string) => {
+    const k = String(s || "").toUpperCase();
+    if (!k || SKIP_SYMBOLS.has(k) || seen.has(k)) return;
+    seen.add(k);
+    out.push(k);
+  };
+  for (const f of snap?.factories ?? []) add(f.symbol);
+  for (const a of snap?.areas ?? []) add(a.symbol);
+  for (const r of snap?.resources ?? []) add(r.symbol);
+  return out;
+}
+
+export function livePaths(symbols: string[]): { id: string; label: string; steps: string[] }[] {
+  const have = new Set(symbols.map((s) => s.toUpperCase()).filter((s) => !SKIP_SYMBOLS.has(s)));
+  const used = new Set<string>();
+  const paths: { id: string; label: string; steps: string[] }[] = [];
+  for (const seed of PRODUCTION_PATHS) {
+    const order = [...seed.steps];
+    const steps = order.filter((s, idx) => {
+      if (have.has(s)) return true;
+      return order.slice(idx + 1).some((d) => have.has(d));
+    });
+    if (!steps.length) continue;
+    steps.forEach((s) => used.add(s));
+    paths.push({ id: seed.id, label: seed.label, steps });
+  }
+  const extras = [...have].filter((s) => !used.has(s));
+  if (extras.length) paths.push({ id: "new", label: "Novas", steps: extras });
+  return paths;
+}
 
 export function targetsForFocus(symbol: string): string[] {
   const want = symbol.trim().toUpperCase();
   if (!want) return [];
-  for (const path of PRODUCTION_PATHS) {
-    const i = (path.steps as readonly string[]).indexOf(want);
-    if (i < 0) continue;
-    return [...path.steps.slice(0, i + 1)].reverse();
+  const out: string[] = [want];
+  const seen = new Set<string>([want]);
+  const walk = (s: string) => {
+    for (const p of RECIPE_PARENTS[s] ?? []) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+      walk(p);
+    }
+  };
+  walk(want);
+  if (out.length === 1) {
+    for (const path of PRODUCTION_PATHS) {
+      const i = (path.steps as readonly string[]).indexOf(want);
+      if (i < 0) continue;
+      return [...path.steps.slice(0, i + 1)].reverse();
+    }
   }
-  return [want];
+  return out;
+}
+
+export function routeKey(symbols: string[]): string {
+  return [...new Set(symbols.map((s) => s.toUpperCase()))].filter((s) => !SKIP_SYMBOLS.has(s)).sort().join(",");
 }
 
 const SNAP_QUERY = `{
