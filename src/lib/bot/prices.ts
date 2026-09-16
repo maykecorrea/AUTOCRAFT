@@ -18,6 +18,9 @@ export const RESOURCE_POOLS: Record<string, string> = {
   FIRE: "0xe973dc221bb031010ec673105ed8b04c9e713b9d",
   SEAWATER: "0x98514550c92ae3b508e8c6ba97429de5162d3932",
   CERAMICS: "0xfa3a564b27deb29781f80032df662a4406eebef6",
+  WIRE: "0xd0fdb28cbbac1808c3bda4c8deb93eb1a8357d0f",
+  ALGAE: "0xe63f8cefea9a17a259bb3b375929bd10d5e1cdfa",
+  NEST: "0xc2135a1b453e7f744b1725961cd97b5a597696aa",
 };
 
 export type TokenQuote = {
