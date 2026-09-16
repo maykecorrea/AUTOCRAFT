@@ -80,19 +80,29 @@ pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-heigh
   <article class="card"><div class="k">XP da sessão</div><div class="v pos" id="xps">—</div><div class="s" id="xpa">—</div></article>
   <article class="card"><div class="k">Último ciclo</div><div class="v" id="ago">—</div><div class="s" id="last">—</div></article>
 </section>
+<section class="grid g4" style="margin-top:10px">
+  <article class="card"><div class="k">COIN (Katana)</div><div class="v" id="coinpx">—</div><div class="s" id="coinchg">spot · pool COIN/WRON</div></article>
+  <article class="card"><div class="k">Estoque em $</div><div class="v pos" id="stockusd">—</div><div class="s" id="stockhint">se vender agora · spot</div></article>
+  <article class="card"><div class="k">Sessão em $</div><div class="v pos" id="sessusd">—</div><div class="s" id="sessrate">matéria coletada × preço</div></article>
+  <article class="card"><div class="k">$/hora</div><div class="v pos" id="usdh">—</div><div class="s">sem slippage · fee 1%</div></article>
+</section>
+
 <section class="card" style="margin-top:10px">
   <div class="k">Linha de produção</div>
   <div class="s" id="prio">Clica no quadrado do recurso que queres no fim da linha. O bot liga essa fábrica e todas as de baixo.</div>
   <div class="paths" id="paths"></div>
 </section>
+
 <div class="grid g3" style="margin-top:10px">
   <article class="card">
     <div class="k">Sessão coletada</div>
-    <table style="margin-top:10px"><thead><tr><th>Recurso</th><th class="n">Total</th><th class="n">/h</th></tr></thead><tbody id="col"></tbody></table>
+    <table style="margin-top:10px"><thead><tr><th>Recurso</th><th class="n">Total</th><th class="n">/h</th><th class="n">$</th></tr></thead><tbody id="col"></tbody></table>
+
   </article>
   <article class="card">
     <div class="k">Estoque agora</div>
-    <table style="margin-top:10px"><thead><tr><th>Recurso</th><th class="n">Qtd</th></tr></thead><tbody id="stock"></tbody></table>
+    <table style="margin-top:10px"><thead><tr><th>Recurso</th><th class="n">Qtd</th><th class="n">$</th></tr></thead><tbody id="stock"></tbody></table>
+
   </article>
   <article class="card">
     <div class="k">Neste ciclo</div>
@@ -113,6 +123,22 @@ pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-heigh
 const $ = id => document.getElementById(id);
 const fmt = n => n==null||!Number.isFinite(+n) ? "—" : Math.round(+n).toLocaleString("pt-BR");
 const signed = n => (n>0?"+":"") + fmt(n);
+function usd(n){
+  if(n==null||!Number.isFinite(+n)) return "—";
+  const x=+n, a=Math.abs(x);
+  const sign = x<0?"-":"";
+  if(a>=100) return sign+"$"+Math.round(a).toLocaleString("pt-BR");
+  if(a>=1) return sign+"$"+a.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(a>=0.01) return sign+"$"+a.toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:4});
+  return sign+"$"+a.toLocaleString("en-US",{minimumFractionDigits:6,maximumFractionDigits:8});
+}
+function usdTiny(n){
+  if(n==null||!Number.isFinite(+n)) return "—";
+  const a=Math.abs(+n);
+  if(a>=0.01) return usd(n);
+  return (n<0?"-":"")+"$"+a.toLocaleString("en-US",{minimumFractionDigits:6,maximumFractionDigits:8});
+}
+
 function ago(ts){
   if(!ts) return "—";
   const s=Math.max(0,Math.floor((Date.now()-ts)/1000));
@@ -144,9 +170,32 @@ async function tick(){
   $("ago").textContent = ago(d.lastCycleAt);
   $("last").textContent = noCoin(d.lastCollected).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—";
   $("spent").textContent = (d.lastSpent&&d.lastSpent.length) ? "gastou "+d.lastSpent.map(r=>r.symbol+" "+signed(-Math.abs(r.amount))).join(" · ") : "sem gasto neste ciclo";
-  $("col").innerHTML = noCoin(d.collected).map(r=>tr("<td class=sym>"+r.symbol+"</td><td class='n pos'>"+fmt(r.amount)+"</td><td class=n>"+fmt(r.amount/h)+"/h</td>")).join("")||tr("<td colspan=3>aguardando CLAIM</td>");
+  const m = d.market || {};
+  const bySym = {};
+  (m.stock||[]).forEach(r => bySym[r.symbol]=r);
+  (m.session||[]).forEach(r => { bySym[r.symbol] = Object.assign({}, bySym[r.symbol]||{}, {sessUsd: r.usd, unitUsd: r.unitUsd}); });
+  if(m.coinUsd!=null){
+    $("coinpx").textContent = usdTiny(m.coinUsd);
+    const chg = m.coinChange24h;
+    $("coinchg").textContent = (chg==null?"spot":((chg>=0?"+":"")+Number(chg).toFixed(2)+"% 24h"))+" · COIN/WRON Katana";
+  } else {
+    $("coinpx").textContent = m.error ? "off" : "…";
+    $("coinchg").textContent = m.error || "puxando GeckoTerminal…";
+  }
+  $("stockusd").textContent = usd(m.stockUsd);
+  $("sessusd").textContent = usd(m.sessionUsd);
+  $("usdh").textContent = usd(m.usdPerHour);
+  $("sessrate").textContent = m.error ? String(m.error).slice(0,80) : "coletado nesta sessão × spot";
+  $("col").innerHTML = noCoin(d.collected).map(r=>{
+    const row = bySym[r.symbol]||{};
+    return tr("<td class=sym>"+r.symbol+"</td><td class='n pos'>"+fmt(r.amount)+"</td><td class=n>"+fmt(r.amount/h)+"/h</td><td class='n pos'>"+usd(row.sessUsd)+"</td>");
+  }).join("")||tr("<td colspan=4>aguardando CLAIM</td>");
   const maxS = Math.max(1, ...noCoin(d.resources).map(r=>r.amount||0));
-  $("stock").innerHTML = noCoin(d.resources).map(r=>tr("<td>"+r.symbol+"<div class=track><i style=width:"+Math.max(4,(r.amount/maxS)*100)+"%"+"></i></div></td><td class=n>"+fmt(r.amount)+"</td>")).join("")||tr("<td colspan=2>—</td>");
+  $("stock").innerHTML = noCoin(d.resources).map(r=>{
+    const row = bySym[r.symbol]||{};
+    return tr("<td>"+r.symbol+"<div class=track><i style=width:"+Math.max(4,(r.amount/maxS)*100)+"%"+"></i></div></td><td class=n>"+fmt(r.amount)+"</td><td class=n>"+usd(row.usd)+"</td>");
+  }).join("")||tr("<td colspan=3>—</td>");
+
   $("delta").innerHTML = noCoin(d.lastCollected).map(r=>tr("<td>"+r.symbol+"</td><td class='n pos'>"+signed(r.amount)+"</td>")).join("")||tr("<td colspan=2>—</td>");
   $("areas").innerHTML = (d.areas||[]).map(a=>tr("<td>"+a.symbol+"</td><td class=n>"+a.factories+"</td><td class=n>"+a.idle+"</td>")).join("")||tr("<td colspan=3>—</td>");
   $("hist").innerHTML = (d.history||[]).slice(0,16).map(x=>tr("<td>"+ago(x.t)+"</td><td>"+((x.collected||[]).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—")+"</td><td class='n pos'>"+signed(x.xp)+"</td><td class=n>"+(x.nodes||0)+"</td>")).join("")||tr("<td colspan=4>sem histórico</td>");

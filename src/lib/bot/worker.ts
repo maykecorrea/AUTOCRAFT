@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getBot } from "./engine";
+import { getMarket, peekMarket, marketView } from "./prices";
 
 const PORT = Number(process.env.PORT || 8080);
 const PAGE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "panel.html"), "utf8");
@@ -14,9 +15,20 @@ if (!bot.authHeader) {
 if (!bot.auto) bot.startAuto();
 console.log(`Clique24 worker · ciclos ${bot.cycles} · auto ${bot.auto}`);
 
+void getMarket();
+setInterval(() => {
+  void getMarket();
+}, 60_000);
+
 function payload() {
   const s = bot.status();
-  return { ...s, logs: bot.logs.slice(0, 48), now: Date.now() };
+  const m = peekMarket();
+  return {
+    ...s,
+    logs: bot.logs.slice(0, 48),
+    now: Date.now(),
+    market: m ? marketView(m, s.resources, s.collected, s.sessionStartedAt) : null,
+  };
 }
 
 function json(res: { writeHead: Function; end: Function }, data: unknown) {
@@ -83,7 +95,9 @@ createServer(async (req, res) => {
 setInterval(() => {
   const s = bot.status();
   const err = s.error ? ` · ${s.error}` : "";
-  console.log(`${new Date().toISOString()} · ciclo ${s.cycles} · energia ${s.energy}/${s.energyMax} · auto ${s.auto}${err}`);
+  const m = peekMarket();
+  const px = m?.coinUsd != null ? ` · COIN $${m.coinUsd.toFixed(6)}` : "";
+  console.log(`${new Date().toISOString()} · ciclo ${s.cycles} · energia ${s.energy}/${s.energyMax} · auto ${s.auto}${px}${err}`);
 }, 60_000);
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
