@@ -5,32 +5,34 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Clique24</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Pixelify+Sans:wght@600;700&display=swap"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700;800&family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"/>
 <style>
-:root{--bg:#06120e;--ink:#e8f6ef;--mut:#7d9b8e;--line:#1a3329;--card:#0b1a15;--acc:#3dffb0;--dim:#143028}
+:root{--bg:#06120e;--ink:#e8f6ef;--mut:#7d9b8e;--line:#1a3329;--card:#0b1a15;--acc:#3dffb0;--dim:#143028;--hud:"Rajdhani",sans-serif;--ui:"Exo 2",sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
 *{box-sizing:border-box;margin:0}
-html,body{background:var(--bg);color:var(--ink);font:13px/1.45 "IBM Plex Mono",ui-monospace,monospace}
+html,body{background:var(--bg);color:var(--ink);font:13px/1.45 var(--mono);-webkit-font-smoothing:antialiased}
 body{min-height:100dvh;background-image:radial-gradient(1200px 500px at 10% -10%,#0f2a20 0%,transparent 55%)}
 main{max-width:1080px;margin:0 auto;padding:22px 16px 40px}
 header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
-h1{font:700 28px/1 "Pixelify Sans",sans-serif;letter-spacing:.02em}
-.sub{color:var(--mut);font-size:11px;margin-top:4px}
-.pill{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:11px}
-button{font:600 12px "IBM Plex Mono",ui-monospace,monospace;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 16px;cursor:pointer;min-height:40px}
+h1{font:800 30px/1 var(--ui);letter-spacing:.08em;text-transform:uppercase}
+.sub{color:var(--mut);font:500 12px/1.4 var(--ui);letter-spacing:.08em;margin-top:6px;text-transform:uppercase}
+.pill{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font:600 11px var(--ui);letter-spacing:.06em}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+button{font:600 12px var(--ui);letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 16px;cursor:pointer;min-height:40px}
 button:hover{border-color:var(--acc);color:var(--acc)}
 button.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
 button.pwr{border-color:#5a241c;color:#ffb3a6}
 button.pwr.on{background:#ff4d2e;color:#140804;border-color:#ff4d2e;box-shadow:0 0 14px rgba(255,77,46,.35)}
-.chip{border:1px solid var(--line);background:var(--dim);color:var(--mut);border-radius:999px;padding:7px 12px;font:600 11px "IBM Plex Mono",ui-monospace,monospace;cursor:pointer;min-height:36px}
+.chip{border:1px solid var(--line);background:var(--dim);color:var(--mut);border-radius:999px;padding:7px 12px;font:600 11px var(--mono);cursor:pointer;min-height:36px}
 .chip.on{background:var(--acc);color:#06120e;border-color:var(--acc)}
 .chip b{margin-right:6px;opacity:.7}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .paths{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:12px}
 @media(max-width:720px){.paths{grid-template-columns:1fr}}
 .path{display:flex;flex-direction:column;align-items:center}
-.path h3{font:600 11px "Pixelify Sans",sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:8px}
+.path h3{font:700 11px var(--ui);letter-spacing:.16em;text-transform:uppercase;color:var(--mut);margin-bottom:8px}
 .stack{display:flex;flex-direction:column-reverse;align-items:stretch;width:100%;max-width:160px}
-.sq{display:flex;align-items:center;justify-content:center;min-height:44px;width:100%;padding:8px 6px;border:1px solid var(--line);background:var(--dim);color:var(--mut);border-radius:8px;cursor:pointer;font:600 11px "IBM Plex Mono",ui-monospace,monospace;text-align:center}
+.sq{display:flex;align-items:center;justify-content:center;min-height:44px;width:100%;padding:8px 6px;border:1px solid var(--line);background:var(--dim);color:var(--mut);border-radius:8px;cursor:pointer;font:600 13px var(--hud);letter-spacing:.06em;text-align:center}
 .sq:hover{border-color:var(--acc);color:var(--ink)}
 .sq.on{background:#123127;color:var(--ink);border-color:#2a6b52}
 .sq.focus{background:var(--acc);color:#06120e;border-color:var(--acc);box-shadow:0 0 14px rgba(61,255,176,.25)}
@@ -44,21 +46,21 @@ button.pwr.on{background:#ff4d2e;color:#140804;border-color:#ff4d2e;box-shadow:0
 .g3{grid-template-columns:1.2fr .9fr .9fr}
 @media(max-width:860px){.g4,.g3{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
-.k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
-.v{font:600 26px/1.1 "Pixelify Sans",sans-serif;margin-top:8px}
-.s{color:var(--mut);font-size:11px;margin-top:6px}
+.k{font:600 11px var(--ui);letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}
+.v{font:600 30px/1.12 var(--hud);letter-spacing:.03em;margin-top:8px;font-variant-numeric:tabular-nums lining-nums}
+.s{color:var(--mut);font:500 12px/1.4 var(--ui);margin-top:6px;letter-spacing:.02em}
 .bar{height:5px;background:var(--dim);border-radius:99px;margin-top:10px;overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--acc);width:0;transition:width .4s}
-table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);font-weight:500;padding:0 0 8px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{text-align:left;font:600 10px var(--ui);letter-spacing:.14em;text-transform:uppercase;color:var(--mut);padding:0 0 8px}
 td{padding:7px 0;border-top:1px solid var(--line);vertical-align:middle}
-td.n,th.n{text-align:right}
-.sym{color:var(--ink)}
+td.n,th.n{text-align:right;font-family:var(--hud);font-weight:600;font-size:15px;letter-spacing:.02em}
+.sym{color:var(--ink);font:600 13px var(--hud);letter-spacing:.04em}
 .pos{color:var(--acc)}
 .track{height:4px;background:var(--dim);border-radius:99px;min-width:72px}
 .track>i{display:block;height:100%;background:var(--acc);border-radius:99px}
-h2{font:600 12px "Pixelify Sans",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:16px 0 8px}
-pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-height:280px;overflow:auto}
+h2{font:700 12px var(--ui);letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin:16px 0 8px}
+pre{white-space:pre-wrap;color:#b7d8c9;font-size:12px;line-height:1.55;max-height:280px;overflow:auto}
 </style>
 </head>
 <body>
@@ -86,23 +88,19 @@ pre{white-space:pre-wrap;color:#b7d8c9;font-size:11px;line-height:1.55;max-heigh
   <article class="card"><div class="k">Sessão em $</div><div class="v pos" id="sessusd">—</div><div class="s" id="sessrate">matéria coletada × preço</div></article>
   <article class="card"><div class="k">$/hora</div><div class="v pos" id="usdh">—</div><div class="s">sem slippage · fee 1%</div></article>
 </section>
-
 <section class="card" style="margin-top:10px">
   <div class="k">Linha de produção</div>
   <div class="s" id="prio">Clica no quadrado do recurso que queres no fim da linha. O bot liga essa fábrica e todas as de baixo.</div>
   <div class="paths" id="paths"></div>
 </section>
-
 <div class="grid g3" style="margin-top:10px">
   <article class="card">
     <div class="k">Sessão coletada</div>
     <table style="margin-top:10px"><thead><tr><th>Recurso</th><th class="n">Total</th><th class="n">/h</th><th class="n">$</th></tr></thead><tbody id="col"></tbody></table>
-
   </article>
   <article class="card">
     <div class="k">Estoque agora</div>
     <table style="margin-top:10px"><thead><tr><th>Recurso</th><th class="n">Qtd</th><th class="n">$</th></tr></thead><tbody id="stock"></tbody></table>
-
   </article>
   <article class="card">
     <div class="k">Neste ciclo</div>
@@ -138,7 +136,6 @@ function usdTiny(n){
   if(a>=0.01) return usd(n);
   return (n<0?"-":"")+"$"+a.toLocaleString("en-US",{minimumFractionDigits:6,maximumFractionDigits:8});
 }
-
 function ago(ts){
   if(!ts) return "—";
   const s=Math.max(0,Math.floor((Date.now()-ts)/1000));
@@ -195,7 +192,6 @@ async function tick(){
     const row = bySym[r.symbol]||{};
     return tr("<td>"+r.symbol+"<div class=track><i style=width:"+Math.max(4,(r.amount/maxS)*100)+"%"+"></i></div></td><td class=n>"+fmt(r.amount)+"</td><td class=n>"+usd(row.usd)+"</td>");
   }).join("")||tr("<td colspan=3>—</td>");
-
   $("delta").innerHTML = noCoin(d.lastCollected).map(r=>tr("<td>"+r.symbol+"</td><td class='n pos'>"+signed(r.amount)+"</td>")).join("")||tr("<td colspan=2>—</td>");
   $("areas").innerHTML = (d.areas||[]).map(a=>tr("<td>"+a.symbol+"</td><td class=n>"+a.factories+"</td><td class=n>"+a.idle+"</td>")).join("")||tr("<td colspan=3>—</td>");
   $("hist").innerHTML = (d.history||[]).slice(0,16).map(x=>tr("<td>"+ago(x.t)+"</td><td>"+((x.collected||[]).map(r=>r.symbol+" "+signed(r.amount)).join(" · ")||"—")+"</td><td class='n pos'>"+signed(x.xp)+"</td><td class=n>"+(x.nodes||0)+"</td>")).join("")||tr("<td colspan=4>sem histórico</td>");
