@@ -1,3 +1,6 @@
+import { RECIPE_PARENTS } from "./recipes";
+export { RECIPE_PARENTS };
+
 const GQL = "https://craft-world.gg/graphql";
 const INGEST = "https://craft-world.gg/api/1/user-actions/ingest";
 const APP_VERSION = "1.21.0";
@@ -61,29 +64,6 @@ export const PRODUCTION_PATHS = [
   { id: "fire", label: "Fogo", steps: ["FIRE", "HEAT", "LAVA", "GAS"] },
   { id: "special", label: "Especial", steps: ["CERAMICS", "GLASS", "STONE", "STEAM", "CEMENT", "FUEL", "OIL", "ACID"] },
 ] as const;
-
-/** What each factory consumes. Used to focus the whole chain up to a target. */
-export const RECIPE_PARENTS: Record<string, string[]> = {
-  MUD: ["EARTH"],
-  CLAY: ["MUD"],
-  SAND: ["CLAY"],
-  COPPER: ["SAND"],
-  STEEL: ["COPPER"],
-  WIRE: ["COPPER"],
-  SCREWS: ["STEEL"],
-  SEAWATER: ["WATER"],
-  ALGAE: ["SEAWATER"],
-  OXYGEN: ["ALGAE"],
-  HEAT: ["FIRE"],
-  LAVA: ["HEAT"],
-  GAS: ["LAVA"],
-  CERAMICS: ["CLAY", "SEAWATER"],
-  GLASS: ["SAND", "HEAT"],
-  STONE: ["COPPER", "ALGAE"],
-  STEAM: ["WATER", "HEAT"],
-  CEMENT: ["STONE", "CERAMICS"],
-  FUEL: ["OIL"],
-};
 
 const SKIP_SYMBOLS = new Set(["COIN", "DUST", "PAPERWRAP", "SANDWRAP", "BOOK"]);
 

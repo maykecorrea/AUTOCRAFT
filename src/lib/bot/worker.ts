@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getBot } from "./engine";
 import { getMarket, peekMarket, marketView } from "./prices";
+import { rankProfit, shouldSwitch } from "./profit";
 
 const PORT = Number(process.env.PORT || 8080);
 const PAGE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "panel.html"), "utf8");
@@ -15,10 +16,28 @@ if (!bot.authHeader) {
 if (!bot.auto) bot.startAuto();
 console.log(`Clique24 worker · ciclos ${bot.cycles} · auto ${bot.auto}`);
 
-void getMarket();
+void getMarket().then(() => maybeApplyProfit(true));
 setInterval(() => {
-  void getMarket();
+  void getMarket().then(() => maybeApplyProfit(false));
 }, 60_000);
+
+function profitView() {
+  const s = bot.status();
+  return rankProfit({
+    snap: bot.snap ?? bot.lastGoodSnap,
+    market: peekMarket(),
+    energy: s.energy,
+    energyMax: s.energyMax,
+  });
+}
+
+function maybeApplyProfit(force = false) {
+  if (!bot.melhorLucro) return;
+  const view = profitView();
+  if (!view.best) return;
+  if (!force && !shouldSwitch(bot.factoryFocus, view)) return;
+  bot.applyBestProfit(view.best.symbol, view.best.why);
+}
 
 function payload() {
   const s = bot.status();
@@ -28,6 +47,7 @@ function payload() {
     logs: bot.logs.slice(0, 48),
     now: Date.now(),
     market: m ? marketView(m, s.resources, s.collected, s.sessionStartedAt) : null,
+    profit: profitView(),
   };
 }
 
@@ -83,6 +103,14 @@ createServer(async (req, res) => {
     const body = await readBody(req);
     const on = typeof body.on === "boolean" ? body.on : !bot.fullPower;
     bot.setFullPower(on);
+    json(res, payload());
+    return;
+  }
+  if (path === "/api/profit" && (method === "POST" || method === "PUT")) {
+    const body = await readBody(req);
+    const on = typeof body.on === "boolean" ? body.on : !bot.melhorLucro;
+    bot.setMelhorLucro(on);
+    maybeApplyProfit(true);
     json(res, payload());
     return;
   }

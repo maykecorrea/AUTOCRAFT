@@ -54,6 +54,7 @@ export type BotStatus = {
   factoryKinds: string[];
   factoryFocus: string | null;
   fullPower: boolean;
+  melhorLucro: boolean;
   paths: { id: string; label: string; steps: readonly string[] }[];
 };
 
@@ -134,6 +135,7 @@ class Clique24 {
   factoryTargets: string[] = [];
   factoryFocus: string | null = null;
   fullPower = false;
+  melhorLucro = false;
   routeStamp = "";
 
   constructor() {
@@ -198,6 +200,7 @@ class Clique24 {
       factoryKinds: this.factoryKinds(),
       factoryFocus: this.factoryFocus,
       fullPower: this.fullPower,
+      melhorLucro: this.melhorLucro,
       paths: livePaths(this.factoryKinds()),
     };
   }
@@ -411,6 +414,7 @@ class Clique24 {
             factoryTargets: this.factoryTargets,
             factoryFocus: this.factoryFocus,
             fullPower: this.fullPower,
+            melhorLucro: this.melhorLucro,
           },
           null,
           2,
@@ -435,6 +439,7 @@ class Clique24 {
         factoryTargets?: string[];
         factoryFocus?: string | null;
         fullPower?: boolean;
+        melhorLucro?: boolean;
       };
       if (s.clicks) this.clicks = s.clicks;
       if (s.collectedSession) this.collectedSession = s.collectedSession;
@@ -447,6 +452,7 @@ class Clique24 {
       }
       if (s.factoryFocus) this.factoryFocus = String(s.factoryFocus).toUpperCase();
       if (typeof s.fullPower === "boolean") this.fullPower = s.fullPower;
+      if (typeof s.melhorLucro === "boolean") this.melhorLucro = s.melhorLucro;
       if (s.auto && this.authHeader) {
         const gap = this.lastCycleAt ? Date.now() - this.lastCycleAt : 0;
         if (gap > 120_000) {
@@ -493,14 +499,15 @@ class Clique24 {
     );
   }
 
-  setFactoryFocus(symbol: string | null) {
+  setFactoryFocus(symbol: string | null, opts?: { fromProfit?: boolean }) {
     const want = symbol ? symbol.trim().toUpperCase() : "";
+    if (!opts?.fromProfit) this.melhorLucro = false;
     if (!want) {
       this.factoryFocus = null;
       this.setFactoryTargets([]);
       return;
     }
-    if (this.fullPower) {
+    if (this.fullPower && !this.melhorLucro) {
       this.fullPower = false;
       this.log("Linha marcada: FULL POWER desligado pra não conflitar.");
     }
@@ -510,13 +517,27 @@ class Clique24 {
 
   setFullPower(on: boolean) {
     this.fullPower = !!on;
-    if (this.fullPower && (this.factoryFocus || this.factoryTargets.length)) {
+    if (this.fullPower && !this.melhorLucro && (this.factoryFocus || this.factoryTargets.length)) {
       this.factoryFocus = null;
       this.factoryTargets = [];
       this.log("FULL POWER: linha de produção limpa (não mistura com o modo máximo).");
     }
     this.persistLedger();
     this.log(this.fullPower ? "FULL POWER ligado — START em todas as idle, ciclo 8s, sem reserva." : "FULL POWER desligado — volta ao modo 1 fábrica/ciclo.");
+  }
+
+  setMelhorLucro(on: boolean) {
+    this.melhorLucro = !!on;
+    this.persistLedger();
+    this.log(this.melhorLucro ? "MELHOR LUCRO ligado — foco na cadeia com melhor $ / energia / tempo." : "MELHOR LUCRO desligado.");
+  }
+
+  applyBestProfit(symbol: string, why: string) {
+    const want = symbol.trim().toUpperCase();
+    if (!want) return;
+    if (this.factoryFocus === want) return;
+    this.setFactoryFocus(want, { fromProfit: true });
+    this.log(`MELHOR LUCRO → ${want} · ${why}`);
   }
 
   persistAuto() {
@@ -541,6 +562,7 @@ class Clique24 {
             factoryTargets: this.factoryTargets,
             factoryFocus: this.factoryFocus,
             fullPower: this.fullPower,
+            melhorLucro: this.melhorLucro,
           },
           null,
           2,
